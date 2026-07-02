@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -97,6 +98,7 @@ namespace AutoReportWizard
 
             vm.Report.TableOrViewName = vm.SelectedTable;
             vm.AvailableFields.Clear();
+            vm.ClearAvailableColumns();
 
             try
             {
@@ -109,7 +111,10 @@ namespace AutoReportWizard
                     field.SourceTable = vm.SelectedTable;
 
                     vm.AvailableFields.Add(field);
+                    vm.AvailableColumns.Add(field.Name);
                 }
+
+                vm.UpdateJoinBaseTable(vm.SelectedTable);
             }
             catch (Exception ex)
             {
@@ -118,6 +123,28 @@ namespace AutoReportWizard
         }
 
         // â”€â”€ Transfer Mechanics (Access-Style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+        private void AddJoin_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not WizardViewModel vm) return;
+
+            var join = new TableJoin
+            {
+                PrimaryTable = string.IsNullOrWhiteSpace(vm.SelectedTable) ? vm.TableOrViewName : vm.SelectedTable
+            };
+
+            vm.ConfiguredJoins.Add(join);
+        }
+
+        private void DeleteJoin_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button button || button.Tag is not TableJoin join)
+                return;
+
+            if (DataContext is not WizardViewModel vm) return;
+
+            vm.ConfiguredJoins.Remove(join);
+        }
 
         private void MoveRight_Click(object sender, RoutedEventArgs e)
         {

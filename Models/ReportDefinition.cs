@@ -44,6 +44,8 @@ namespace AutoReportWizard.Models
         /// Stores the raw, user-edited T-SQL from the Step 3 Live Editor.
         /// </summary>
         public string CustomSql { get; set; } = string.Empty;
+        public string PreQueryLogic { get; set; } = string.Empty;
+        public string CustomWhereClause { get; set; } = string.Empty;
 
         /// <summary>
         /// User-defined input parameters for the Stored Procedure and RDLC file.

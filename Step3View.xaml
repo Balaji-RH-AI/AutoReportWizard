@@ -8,7 +8,7 @@
         <local:InverseBoolConverter x:Key="InvBool"/>
 
         <Style x:Key="ColLabel"
-                TargetType="TextBlock">
+               TargetType="TextBlock">
             <Setter Property="Foreground"
                     Value="#888"/>
             <Setter Property="FontSize"
@@ -20,7 +20,7 @@
         </Style>
 
         <Style x:Key="TypeBadge"
-                TargetType="Border">
+               TargetType="Border">
             <Setter Property="Background"
                     Value="#252525"/>
             <Setter Property="CornerRadius"
@@ -41,13 +41,13 @@
 
         <StackPanel Grid.Column="0">
             <TextBlock Text="Group By &amp; Aggregation"
-                    Foreground="White"
+                       Foreground="White"
                        FontSize="26"
-                    FontWeight="Bold"/>
+                       FontWeight="Bold"/>
             <TextBlock Foreground="Gray"
-                    FontSize="13"
-                    Margin="0,5,0,20"
-                    TextWrapping="Wrap"
+                       FontSize="13"
+                       Margin="0,5,0,20"
+                       TextWrapping="Wrap"
                        Text="Check GROUP BY on dimension fields. Pick an aggregate for numeric measures."/>
 
             <Grid Margin="10,0,10,8">
@@ -57,15 +57,15 @@
                     <ColumnDefinition Width="140"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0"
-                        Text="FIELD"
-                        Style="{StaticResource ColLabel}"/>
+                           Text="FIELD"
+                           Style="{StaticResource ColLabel}"/>
                 <TextBlock Grid.Column="1"
-                        Text="GROUP BY"
-                        Style="{StaticResource ColLabel}"
+                           Text="GROUP BY"
+                           Style="{StaticResource ColLabel}"
                            HorizontalAlignment="Center"/>
                 <TextBlock Grid.Column="2"
-                        Text="AGGREGATE"
-                        Style="{StaticResource ColLabel}"
+                           Text="AGGREGATE"
+                           Style="{StaticResource ColLabel}"
                            HorizontalAlignment="Center"/>
             </Grid>
 
@@ -86,17 +86,17 @@
                                     </Grid.ColumnDefinitions>
 
                                     <StackPanel Grid.Column="0"
-                                            Orientation="Horizontal"
-                                            VerticalAlignment="Center">
+                                                Orientation="Horizontal"
+                                                VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Name}"
-                                                Foreground="White"
+                                                   Foreground="White"
                                                    FontSize="13"
-                                                VerticalAlignment="Center"/>
+                                                   VerticalAlignment="Center"/>
                                         <Border Style="{StaticResource TypeBadge}">
                                             <TextBlock Text="{Binding SqlDataType}"
-                                                    Foreground="#888"
+                                                       Foreground="#888"
                                                        FontSize="10"
-                                                    VerticalAlignment="Center"/>
+                                                       VerticalAlignment="Center"/>
                                         </Border>
                                     </StackPanel>
 
@@ -112,9 +112,9 @@
                                               Tag="{Binding}"
                                               IsEnabled="{Binding IsGroupBy, Converter={StaticResource InvBool}}"
                                               Background="#0A0A0A"
-                                            Foreground="White"
+                                              Foreground="White"
                                               BorderBrush="#444"
-                                            FontSize="12"
+                                              FontSize="12"
                                               SelectionChanged="Agg_SelectionChanged"
                                               Loaded="AggCombo_Loaded"/>
                                 </Grid>
@@ -128,11 +128,13 @@
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="120"/>
+                <RowDefinition Height="100"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
             <Grid Grid.Row="0"
-                    Margin="0,0,0,12">
+                  Margin="0,0,0,12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
@@ -140,11 +142,11 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0"
-                        Text="Live SQL Editor"
-                        Foreground="#D4AF37"
+                           Text="Live SQL Editor"
+                           Foreground="#D4AF37"
                            FontSize="14"
-                        FontWeight="SemiBold"
-                        VerticalAlignment="Center"/>
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"/>
 
                 <Button Grid.Column="1"
                         Content="Scaffold Base Query"
@@ -166,28 +168,81 @@
                         Click="ParseCustomSql_Click"/>
             </Grid>
 
-            <TextBox x:Name="LiveSqlEditor"
-                    Grid.Row="1"
-                     Text="{Binding CustomSql, UpdateSourceTrigger=PropertyChanged}"
-                     Background="#0D1117"
-                    Foreground="#CE9178"
-                    FontFamily="Consolas"
-                    FontSize="13"
-                     BorderBrush="#444"
-                    BorderThickness="1"
-                    Padding="14"
-                     AcceptsReturn="True"
-                    AcceptsTab="True"
-                    TextWrapping="NoWrap"
-                     VerticalScrollBarVisibility="Auto"
-                    HorizontalScrollBarVisibility="Auto">
-                <TextBox.Resources>
-                    <Style TargetType="{x:Type Border}">
-                        <Setter Property="CornerRadius"
-                                Value="6"/>
-                    </Style>
-                </TextBox.Resources>
-            </TextBox>
+            <StackPanel Grid.Row="1"
+                    Margin="0,0,0,10">
+                <TextBlock Text="PRE-QUERY EXTENSIONS (Variables / Mapping Logic)"
+                           Foreground="#D4AF37"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,6"/>
+                <TextBox Text="{Binding PreQueryLogic, UpdateSourceTrigger=PropertyChanged}"
+                         Background="#0D1117"
+                         Foreground="#CE9178"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         BorderBrush="#444"
+                         BorderThickness="1"
+                         Padding="10"
+                         AcceptsReturn="True"
+                         AcceptsTab="True"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         TextChanged="PreviewText_Changed"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="2"
+                    Margin="0,0,0,10">
+                <TextBlock Text="CUSTOM FILTERING (WHERE Clause Constraints)"
+                           Foreground="#D4AF37"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,6"/>
+                <TextBox Text="{Binding CustomWhereClause, UpdateSourceTrigger=PropertyChanged}"
+                         Background="#0D1117"
+                         Foreground="#CE9178"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         BorderBrush="#444"
+                         BorderThickness="1"
+                         Padding="10"
+                         AcceptsReturn="True"
+                         AcceptsTab="True"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         TextChanged="PreviewText_Changed"/>
+            </StackPanel>
+
+            <StackPanel Grid.Row="3">
+                <TextBlock Text="LIVE STORED PROCEDURE PREVIEW"
+                           Foreground="#D4AF37"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,6"/>
+                <TextBox x:Name="LiveSqlEditor"
+                         Text="{Binding CustomSql, UpdateSourceTrigger=PropertyChanged}"
+                         Background="#0D1117"
+                         Foreground="#CE9178"
+                         FontFamily="Consolas"
+                         FontSize="13"
+                         BorderBrush="#444"
+                         BorderThickness="1"
+                         Padding="14"
+                         IsReadOnly="True"
+                         AcceptsReturn="True"
+                         AcceptsTab="True"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto">
+                    <TextBox.Resources>
+                        <Style TargetType="{x:Type Border}">
+                            <Setter Property="CornerRadius"
+                                    Value="6"/>
+                        </Style>
+                    </TextBox.Resources>
+                </TextBox>
+            </StackPanel>
         </Grid>
     </Grid>
 </UserControl>

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Data;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using AutoReportWizard.Infrastructure;
@@ -30,6 +32,12 @@ namespace AutoReportWizard
         /// <summary>Observable list of parameters — bound to Step 5.</summary>
         public ObservableCollection<ReportParameter> Parameters { get; } = new();
 
+        /// <summary>Join mappings configured for the current report.</summary>
+        public ObservableCollection<TableJoin> ConfiguredJoins { get; } = new();
+
+        /// <summary>Columns available in the currently selected base table.</summary>
+        public ObservableCollection<string> AvailableColumns { get; } = new();
+
         private bool _isBusy;
         public bool IsBusy
         {
@@ -50,6 +58,11 @@ namespace AutoReportWizard
         {
             foreach (var parameter in Report.Parameters)
                 Parameters.Add(parameter);
+
+            foreach (var join in Report.Joins)
+                ConfiguredJoins.Add(join);
+
+            ConfiguredJoins.CollectionChanged += (_, _) => SyncJoinsToReport();
 
             RunPreviewCommand = new RelayCommand(
                 async _ => await RunPreviewAsync(),
@@ -215,6 +228,18 @@ namespace AutoReportWizard
             set { Report.DynamicHeaderFieldName = value; OnPropertyChanged(); }
         }
 
+        public string PreQueryLogic
+        {
+            get => Report.PreQueryLogic;
+            set { Report.PreQueryLogic = value; OnPropertyChanged(); }
+        }
+
+        public string CustomWhereClause
+        {
+            get => Report.CustomWhereClause;
+            set { Report.CustomWhereClause = value; OnPropertyChanged(); }
+        }
+
         public string? HeaderSiteField
         {
             get => Report.HeaderSiteField;
@@ -360,6 +385,24 @@ namespace AutoReportWizard
             Report.Parameters.Clear();
             foreach (var parameter in Parameters)
                 Report.Parameters.Add(parameter);
+        }
+
+        public void SyncJoinsToReport()
+        {
+            Report.Joins.Clear();
+            foreach (var join in ConfiguredJoins)
+                Report.Joins.Add(join);
+        }
+
+        public void UpdateJoinBaseTable(string baseTable)
+        {
+            foreach (var join in ConfiguredJoins.Where(j => string.IsNullOrWhiteSpace(j.PrimaryTable)))
+                join.PrimaryTable = baseTable;
+        }
+
+        public void ClearAvailableColumns()
+        {
+            AvailableColumns.Clear();
         }
 
         private async Task RunPreviewAsync()

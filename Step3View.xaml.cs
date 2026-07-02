@@ -53,20 +53,43 @@ namespace AutoReportWizard
             }
         }
 
-        // ── Scaffold Custom Query to Editor ───────────────────────────────────
+        private void PreviewText_Changed(object sender, TextChangedEventArgs e)
+        {
+            if (DataContext is not WizardViewModel vm) return;
+
+            BuildPreviewSql(vm);
+        }
+
         private void ScaffoldQuery_Click(object sender, RoutedEventArgs e)
         {
             if (DataContext is not WizardViewModel vm) return;
 
+            BuildPreviewSql(vm);
+        }
+
+        private static void BuildPreviewSql(WizardViewModel vm)
+        {
             var sb = new StringBuilder();
             var groupByFields = vm.Fields.Where(f => f.IsGroupBy).ToList();
             bool hasGroupBy = groupByFields.Any();
 
-            sb.AppendLine("SELECT");
+            sb.AppendLine("CREATE OR ALTER PROCEDURE dbo." + vm.StoredProcName);
+            sb.AppendLine("AS");
+            sb.AppendLine("BEGIN");
+            sb.AppendLine();
+            sb.AppendLine("    SET NOCOUNT ON;");
+            sb.AppendLine();
+            if (!string.IsNullOrWhiteSpace(vm.PreQueryLogic))
+            {
+                sb.AppendLine(vm.PreQueryLogic.Trim());
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("    SELECT");
 
             var selectItems = vm.Fields
                 .OrderBy(f => f.DisplayOrder)
-                .Select(f => "    " + f.GetSelectExpression())
+                .Select(f => "        " + f.GetSelectExpression())
                 .ToList();
 
             for (int i = 0; i < selectItems.Count; i++)
@@ -76,15 +99,20 @@ namespace AutoReportWizard
             }
 
             string schemaClause = string.IsNullOrEmpty(vm.SchemaName) ? "dbo" : vm.SchemaName;
-            sb.AppendLine($"FROM [{vm.DatabaseName}].[{schemaClause}].[{vm.TableOrViewName}]");
+            sb.AppendLine($"    FROM [{vm.DatabaseName}].[{schemaClause}].[{vm.TableOrViewName}]");
+
+            if (!string.IsNullOrWhiteSpace(vm.CustomWhereClause))
+            {
+                sb.AppendLine($"    WHERE {vm.CustomWhereClause.Trim()}");
+            }
 
             if (hasGroupBy)
             {
-                sb.Append("GROUP BY ");
-                sb.AppendLine(string.Join(", ", groupByFields.Select(f => $"[{f.Name}]")));
+                sb.AppendLine("    GROUP BY " + string.Join(", ", groupByFields.Select(f => $"[{f.Name}]")));
             }
 
-            sb.AppendLine("OPTION (RECOMPILE);");
+            sb.AppendLine("    OPTION (RECOMPILE);");
+            sb.AppendLine("END");
 
             vm.CustomSql = sb.ToString();
         }
