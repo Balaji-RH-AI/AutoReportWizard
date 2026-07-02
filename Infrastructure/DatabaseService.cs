@@ -297,25 +297,48 @@ namespace AutoReportWizard.Infrastructure
         }
 
         public async Task<DataTable> ExecuteStoredProcedurePreviewAsync(
-            ReportDefinition def,
-            IReadOnlyCollection<ReportParameter> parameters,
-            CancellationToken ct = default)
+    ReportDefinition def,
+    IReadOnlyCollection<ReportParameter> parameters,
+    CancellationToken ct = default)
         {
             var data = new DataTable("PreviewData");
+
+            // 1. We must parse out the CREATE PROCEDURE wrapper and extract ONLY the SELECT query
+            // so we can execute it safely against the live database for a preview.
+            string rawQuery = def.CustomSql;
+
+            // Look for the "SELECT" keyword to start the query. 
+            // We ignore the CREATE PROCEDURE and SET NOCOUNT ON headers.
+            int selectIndex = rawQuery.IndexOf("SELECT", StringComparison.OrdinalIgnoreCase);
+            if (selectIndex >= 0)
+            {
+                // Extract everything from SELECT down to the end
+                rawQuery = rawQuery.Substring(selectIndex);
+
+                // Remove the OPTION (RECOMPILE); and END tags from the footer
+                rawQuery = rawQuery.Replace("OPTION (RECOMPILE);", "", StringComparison.OrdinalIgnoreCase);
+                rawQuery = rawQuery.Replace("END", "", StringComparison.OrdinalIgnoreCase);
+            }
+
+            // If the user wrote Pre-Query logic (like DECLARE variables), prepend it back to the raw query
+            if (!string.IsNullOrWhiteSpace(def.PreQueryLogic))
+            {
+                rawQuery = def.PreQueryLogic + "\n" + rawQuery;
+            }
 
             await _resilience.ExecuteAsync(async token =>
             {
                 await using var connection = new SqlConnection(def.BuildConnectionString());
                 await connection.OpenAsync(token);
 
-                await using var cmd = new SqlCommand(
-                    $"{QuoteIdentifier(def.SchemaName)}.{QuoteIdentifier(def.StoredProcName)}",
-                    connection)
+                // 2. Change CommandType from StoredProcedure to Text so we can run raw SQL
+                await using var cmd = new SqlCommand(rawQuery, connection)
                 {
-                    CommandType = CommandType.StoredProcedure,
+                    CommandType = CommandType.Text,
                     CommandTimeout = ReportDefinition.SchemaTimeoutSeconds
                 };
 
+                // 3. Attach any parameters the user provided in the UI
                 foreach (var parameter in parameters)
                 {
                     string parameterName = parameter.Name.StartsWith("@", StringComparison.Ordinal)

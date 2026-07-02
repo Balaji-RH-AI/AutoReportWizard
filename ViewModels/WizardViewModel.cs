@@ -5,11 +5,13 @@ using System.ComponentModel;
 using System.Data;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using AutoReportWizard.Infrastructure;
 using AutoReportWizard.Models;
+using AutoReportWizard.Services;
 
-namespace AutoReportWizard
+namespace AutoReportWizard.ViewModels
 {
     /// <summary>
     /// Central MVVM hub for the wizard. Holds the single ReportDefinition state
@@ -165,24 +167,184 @@ namespace AutoReportWizard
         public string SelectedDatabase
         {
             get => _selectedDatabase;
-            set { _selectedDatabase = value; OnPropertyChanged(); }
+            set
+            {
+                if (_selectedDatabase == value)
+                    return;
+
+                _selectedDatabase = value;
+                Report.DatabaseName = value;
+                OnPropertyChanged();
+
+                AvailableSchemas.Clear();
+                AvailableTables.Clear();
+                SelectedSchema = string.Empty;
+                SelectedTable = string.Empty;
+
+                if (!string.IsNullOrWhiteSpace(value))
+                    _ = LoadSchemasAsync();
+            }
         }
 
         private string _selectedSchema = string.Empty;
         public string SelectedSchema
         {
             get => _selectedSchema;
-            set { _selectedSchema = value; OnPropertyChanged(); }
+            set
+            {
+                if (_selectedSchema == value)
+                    return;
+
+                _selectedSchema = value;
+                Report.SchemaName = value;
+                OnPropertyChanged();
+
+                AvailableTables.Clear();
+                SelectedTable = string.Empty;
+
+                if (!string.IsNullOrWhiteSpace(value))
+                    _ = LoadTablesAsync();
+            }
         }
 
         private string _selectedTable = string.Empty;
         public string SelectedTable
         {
             get => _selectedTable;
-            set { _selectedTable = value; OnPropertyChanged(); }
+            set
+            {
+                if (_selectedTable == value)
+                    return;
+
+                _selectedTable = value;
+                Report.TableOrViewName = value;
+                OnPropertyChanged();
+
+                if (!string.IsNullOrWhiteSpace(value))
+                    _ = LoadFieldsAsync();
+            }
         }
 
         public string StoredProcName => Report.StoredProcName;
+
+        // ── Async Data Loading Methods ────────────────────────────────────────
+
+        public async Task LoadDatabaseOptionsAsync()
+        {
+            AvailableDatabases.Clear();
+            AvailableSchemas.Clear();
+            AvailableTables.Clear();
+            IsBusy = true;
+
+            try
+            {
+                var dbs = await _databaseService.GetDatabasesAsync(Report);
+                foreach (var db in dbs)
+                    AvailableDatabases.Add(db);
+
+                if (!string.IsNullOrWhiteSpace(DatabaseName) && AvailableDatabases.Contains(DatabaseName))
+                {
+                    SelectedDatabase = DatabaseName;
+                }
+                else if (AvailableDatabases.Count > 0)
+                {
+                    SelectedDatabase = AvailableDatabases[0];
+                }
+            }
+            catch (Exception ex)
+            {
+                DiscoveryError = ex.Message;
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        public async Task LoadSchemasAsync()
+        {
+            AvailableSchemas.Clear();
+            AvailableTables.Clear();
+            AvailableColumns.Clear();
+            AvailableFields.Clear();
+
+            if (string.IsNullOrWhiteSpace(SelectedDatabase))
+                return;
+
+            try
+            {
+                IsBusy = true;
+                var schemas = await _databaseService.GetSchemasAsync(Report);
+
+                foreach (var schema in schemas)
+                    AvailableSchemas.Add(schema);
+            }
+            catch (Exception ex)
+            {
+                DiscoveryError = ex.Message;
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        public async Task LoadTablesAsync()
+        {
+            AvailableTables.Clear();
+            AvailableColumns.Clear();
+            AvailableFields.Clear();
+
+            if (string.IsNullOrWhiteSpace(SelectedSchema))
+                return;
+
+            try
+            {
+                IsBusy = true;
+                var tables = await _databaseService.GetTablesAndViewsAsync(Report, SelectedSchema);
+                foreach (var t in tables) AvailableTables.Add(t);
+            }
+            catch (Exception ex)
+            {
+                DiscoveryError = ex.Message;
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        public async Task LoadFieldsAsync()
+        {
+            AvailableFields.Clear();
+            ClearAvailableColumns();
+
+            if (string.IsNullOrWhiteSpace(SelectedTable))
+                return;
+
+            try
+            {
+                IsBusy = true;
+                var fields = await _databaseService.GetSchemaAsync(Report);
+                foreach (var f in fields)
+                {
+                    f.SourceDatabase = SelectedDatabase;
+                    f.SourceSchema = SelectedSchema;
+                    f.SourceTable = SelectedTable;
+                    AvailableFields.Add(f);
+                    AvailableColumns.Add(f.Name);
+                }
+                UpdateJoinBaseTable(SelectedTable);
+            }
+            catch (Exception ex)
+            {
+                DiscoveryError = ex.Message;
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
 
         // ── Step 3 Bindings (Live SQL Editor) ─────────────────────────────────
         public string CustomSql

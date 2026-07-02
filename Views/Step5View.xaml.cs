@@ -1,9 +1,11 @@
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using AutoReportWizard.Models;
 
-namespace AutoReportWizard
+using AutoReportWizard.Models;
+using AutoReportWizard.ViewModels;
+
+namespace AutoReportWizard.Views
 {
     public partial class Step5View : UserControl
     {

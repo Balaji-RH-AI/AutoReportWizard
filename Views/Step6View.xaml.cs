@@ -7,14 +7,16 @@ using System.Windows.Controls;
 using Microsoft.Win32;
 using AutoReportWizard.Services;
 
-namespace AutoReportWizard
+using AutoReportWizard.ViewModels;
+
+namespace AutoReportWizard.Views
 {
     public partial class Step6View : UserControl
     {
-        private readonly SqlGeneratorService    _sqlGen    = new();
-        private readonly RdlcXmlEngine          _rdlcGen   = new();
+        private readonly SqlGeneratorService _sqlGen = new();
+        private readonly RdlcXmlEngine _rdlcGen = new();
         private readonly SqlVerificationService _sqlVerify = new();
-        private readonly RdlcValidationService  _rdlcVal   = new();
+        private readonly RdlcValidationService _rdlcVal = new();
 
         public Step6View()
         {
@@ -49,7 +51,7 @@ namespace AutoReportWizard
                 return;
             }
 
-            vm.IsGenerating  = true;
+            vm.IsGenerating = true;
             vm.GenerationLog = string.Empty;
 
             PhaseALabel.Foreground = System.Windows.Media.Brushes.DimGray;
@@ -60,10 +62,10 @@ namespace AutoReportWizard
                 Directory.CreateDirectory(vm.OutputDirectory);
 
                 // ── PHASE A ───────────────────────────────────────────────
-                PhaseALabel.Text       = "⏳ Phase A — T-SQL";
+                PhaseALabel.Text = "⏳ Phase A — T-SQL";
                 PhaseALabel.Foreground = System.Windows.Media.Brushes.Gold;
                 vm.AppendLog("── Phase A: T-SQL Generation ──────────────────");
-                
+
                 string generatedSql = await Task.Run(() => _sqlGen.Generate(vm.Report));
                 vm.AppendLog("  ✔ T-SQL script generated successfully.");
 
@@ -83,11 +85,11 @@ namespace AutoReportWizard
                 await File.WriteAllTextAsync(sqlPath, generatedSql);
                 vm.AppendLog($"  📄 Saved: {sqlPath}\n");
 
-                PhaseALabel.Text       = "✔ Phase A — T-SQL";
+                PhaseALabel.Text = "✔ Phase A — T-SQL";
                 PhaseALabel.Foreground = System.Windows.Media.Brushes.LightGreen;
 
                 // ── PHASE B ───────────────────────────────────────────────
-                PhaseBLabel.Text       = "⏳ Phase B — RDLC XML";
+                PhaseBLabel.Text = "⏳ Phase B — RDLC XML";
                 PhaseBLabel.Foreground = System.Windows.Media.Brushes.Gold;
                 vm.AppendLog("── Phase B: RDLC XML Generation ───────────────");
 
@@ -98,7 +100,7 @@ namespace AutoReportWizard
                 await Task.Run(() => rdlcDoc.Save(rdlcPath));
                 vm.AppendLog($"  📄 Saved: {rdlcPath}\n");
 
-                PhaseBLabel.Text       = "✔ Phase B — RDLC XML";
+                PhaseBLabel.Text = "✔ Phase B — RDLC XML";
                 PhaseBLabel.Foreground = System.Windows.Media.Brushes.LightGreen;
 
                 vm.AppendLog("══ Generation Complete ══════════════════════════");

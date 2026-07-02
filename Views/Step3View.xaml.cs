@@ -1,24 +1,13 @@
 using System;
-using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using AutoReportWizard.Models;
+using AutoReportWizard.ViewModels;
 
-namespace AutoReportWizard
+namespace AutoReportWizard.Views
 {
-    // ── InverseBoolConverter ──────────────────────────────────────────────
-    public class InverseBoolConverter : IValueConverter
-    {
-        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-            => value is bool b ? !b : value;
-
-        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-            => value is bool b ? !b : value;
-    }
-
     public partial class Step3View : UserControl
     {
         private static readonly AggregateFunction[] AggregateOptions =
@@ -56,14 +45,12 @@ namespace AutoReportWizard
         private void PreviewText_Changed(object sender, TextChangedEventArgs e)
         {
             if (DataContext is not WizardViewModel vm) return;
-
             BuildPreviewSql(vm);
         }
 
         private void ScaffoldQuery_Click(object sender, RoutedEventArgs e)
         {
             if (DataContext is not WizardViewModel vm) return;
-
             BuildPreviewSql(vm);
         }
 
@@ -73,12 +60,13 @@ namespace AutoReportWizard
             var groupByFields = vm.Fields.Where(f => f.IsGroupBy).ToList();
             bool hasGroupBy = groupByFields.Any();
 
-            sb.AppendLine("CREATE OR ALTER PROCEDURE dbo." + vm.StoredProcName);
+            sb.AppendLine("CREATE OR ALTER PROCEDURE dbo." + (string.IsNullOrWhiteSpace(vm.StoredProcName) ? "[ProcedureName]" : vm.StoredProcName));
             sb.AppendLine("AS");
             sb.AppendLine("BEGIN");
             sb.AppendLine();
             sb.AppendLine("    SET NOCOUNT ON;");
             sb.AppendLine();
+
             if (!string.IsNullOrWhiteSpace(vm.PreQueryLogic))
             {
                 sb.AppendLine(vm.PreQueryLogic.Trim());
@@ -92,14 +80,30 @@ namespace AutoReportWizard
                 .Select(f => "        " + f.GetSelectExpression())
                 .ToList();
 
-            for (int i = 0; i < selectItems.Count; i++)
+            if (!selectItems.Any())
             {
-                string comma = i < selectItems.Count - 1 ? "," : "";
-                sb.AppendLine($"{selectItems[i]}{comma}");
+                sb.AppendLine("        *"); // Fallback if no fields
+            }
+            else
+            {
+                for (int i = 0; i < selectItems.Count; i++)
+                {
+                    string comma = i < selectItems.Count - 1 ? "," : "";
+                    sb.AppendLine($"{selectItems[i]}{comma}");
+                }
             }
 
             string schemaClause = string.IsNullOrEmpty(vm.SchemaName) ? "dbo" : vm.SchemaName;
             sb.AppendLine($"    FROM [{vm.DatabaseName}].[{schemaClause}].[{vm.TableOrViewName}]");
+
+            // Inject the configured table joins from Step 2
+            if (vm.ConfiguredJoins.Any())
+            {
+                foreach (var join in vm.ConfiguredJoins)
+                {
+                    sb.AppendLine($"    INNER JOIN [{vm.DatabaseName}].[{schemaClause}].[{join.JoinedTable}] ON [{join.PrimaryTable}].[{join.PrimaryColumn}] = [{join.JoinedTable}].[{join.JoinedColumn}]");
+                }
+            }
 
             if (!string.IsNullOrWhiteSpace(vm.CustomWhereClause))
             {
@@ -118,6 +122,7 @@ namespace AutoReportWizard
         }
 
         // ── Parse Custom SQL to Layout ────────────────────────────────────────
+        // ── Parse Custom SQL to Layout ────────────────────────────────────────
         private async void ParseCustomSql_Click(object sender, RoutedEventArgs e)
         {
             if (DataContext is not WizardViewModel vm || string.IsNullOrWhiteSpace(vm.CustomSql)) return;
@@ -125,19 +130,66 @@ namespace AutoReportWizard
             try
             {
                 System.Windows.Input.Mouse.OverrideCursor = System.Windows.Input.Cursors.Wait;
-
                 var dbService = new Infrastructure.DatabaseService();
 
-                // Extract fields using SQL Server's native discovery
-                var customFields = await dbService.GetSchemaFromCustomSqlAsync(vm.Report);
+                // 1. Rebuild ONLY the raw query (strip out the CREATE PROCEDURE wrapper)
+                var pureQuery = new StringBuilder();
 
-                // Clear existing layout fields
+                if (!string.IsNullOrWhiteSpace(vm.PreQueryLogic))
+                    pureQuery.AppendLine(vm.PreQueryLogic);
+
+                pureQuery.AppendLine("SELECT");
+
+                var selectItems = vm.Fields.OrderBy(f => f.DisplayOrder).Select(f =>
+                {
+                    string expr = f.GetSelectExpression();
+                    // If the expression doesn't already have an alias, force one so SQL Server doesn't crash
+                    if (!expr.Contains(" AS ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return $"    {expr} AS [{f.Name}]";
+                    }
+                    return $"    {expr}";
+                }).ToList();
+                if (!selectItems.Any())
+                    pureQuery.AppendLine("    *");
+                else
+                    pureQuery.AppendLine(string.Join(",\n", selectItems));
+
+                string schemaClause = string.IsNullOrEmpty(vm.SchemaName) ? "dbo" : vm.SchemaName;
+                pureQuery.AppendLine($"FROM [{vm.DatabaseName}].[{schemaClause}].[{vm.TableOrViewName}]");
+
+                if (vm.ConfiguredJoins.Any())
+                {
+                    foreach (var join in vm.ConfiguredJoins)
+                        pureQuery.AppendLine($"INNER JOIN [{vm.DatabaseName}].[{schemaClause}].[{join.JoinedTable}] ON [{join.PrimaryTable}].[{join.PrimaryColumn}] = [{join.JoinedTable}].[{join.JoinedColumn}]");
+                }
+
+                if (!string.IsNullOrWhiteSpace(vm.CustomWhereClause))
+                    pureQuery.AppendLine($"WHERE {vm.CustomWhereClause.Trim()}");
+
+                var groupByFields = vm.Fields.Where(f => f.IsGroupBy).ToList();
+                if (groupByFields.Any())
+                    pureQuery.AppendLine("GROUP BY " + string.Join(", ", groupByFields.Select(f => $"[{f.Name}]")));
+
+                // 2. Create a temporary report object just for the parser so we don't mess up your UI
+                var tempReport = new ReportDefinition
+                {
+                    ServerName = vm.Report.ServerName,
+                    DatabaseName = vm.Report.DatabaseName,
+                    AuthType = vm.Report.AuthType,
+                    Username = vm.Report.Username,
+                    Password = vm.Report.Password,
+                    CustomSql = pureQuery.ToString() // Pass the clean SELECT statement
+                };
+
+                // 3. Send the clean query to SQL Server
+                var customFields = await dbService.GetSchemaFromCustomSqlAsync(tempReport);
+
                 vm.Fields.Clear();
                 vm.AvailableFields.Clear();
 
                 foreach (var field in customFields)
                 {
-                    // Ensure the layout grid sees them as active detail fields
                     field.IsDetailField = true;
                     vm.Fields.Add(field);
                 }
@@ -147,7 +199,7 @@ namespace AutoReportWizard
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to parse custom SQL. Ensure your syntax is correct and does not rely on complex temp tables (#) that sp_describe cannot resolve.\n\nError: {ex.Message}",
+                MessageBox.Show($"Failed to parse custom SQL.\n\nError: {ex.Message}",
                                 "Parsing Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             finally

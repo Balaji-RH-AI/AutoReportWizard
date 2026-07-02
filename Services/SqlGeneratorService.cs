@@ -34,59 +34,62 @@ namespace AutoReportWizard.Services
             try
             {
                 var sb = new StringBuilder();
-                var groupByFields  = def.Fields.Where(f => f.IsGroupBy).ToList();
-                var aggregateFields = def.Fields
-                    .Where(f => !f.IsGroupBy && f.Aggregate != AggregateFunction.None)
-                    .ToList();
-                var detailOnlyFields = def.Fields
-                    .Where(f => !f.IsGroupBy && f.Aggregate == AggregateFunction.None)
-                    .ToList();
-
-                bool hasGroupBy = groupByFields.Any();
-
-                // ── Header ─────────────────────────────────────────────────
-                sb.AppendLine("-- ============================================================");
-                sb.AppendLine($"-- Report  : {def.ReportName}");
-                sb.AppendLine($"-- Source  : {def.SchemaName}.{def.TableOrViewName}");
-                sb.AppendLine($"-- Generated: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
-                sb.AppendLine("-- DO NOT EDIT — regenerate via AutoReportWizard");
-                sb.AppendLine("-- ============================================================");
-                sb.AppendLine($"USE {QuoteName(def.DatabaseName)};");
-                sb.AppendLine("GO");
-                sb.AppendLine();
-
-                // ── CREATE OR ALTER PROCEDURE ─────────────────────────────
-                sb.AppendLine(
-                    $"CREATE OR ALTER PROCEDURE {QuoteName(def.SchemaName)}.{QuoteName(def.StoredProcName)}");
-                sb.AppendLine("AS");
-                sb.AppendLine("BEGIN");
-                sb.AppendLine("    SET NOCOUNT ON;");
-                sb.AppendLine();
-
-                // ── SELECT ─────────────────────────────────────────────────
-                sb.AppendLine("    SELECT");
-
+                var groupByFields = def.Fields.Where(f => f.IsGroupBy).ToList();
                 var selectItems = BuildSelectList(def.Fields);
-                for (int i = 0; i < selectItems.Count; i++)
+
+                sb.AppendLine($"CREATE OR ALTER PROCEDURE {QuoteName(def.SchemaName)}.{QuoteName(def.StoredProcName)}");
+                sb.AppendLine("    @ProcessDate CHAR(8),");
+                sb.AppendLine("    @Siteid VARCHAR(MAX),");
+                sb.AppendLine("    @BatchNo VARCHAR(MAX),");
+                sb.AppendLine("    @WorkSource VARCHAR(MAX)");
+                sb.AppendLine("AS BEGIN");
+                sb.AppendLine("SET NOCOUNT ON;");
+                sb.AppendLine();
+
+                if (!string.IsNullOrWhiteSpace(def.PreQueryLogic))
                 {
-                    string comma = i < selectItems.Count - 1 ? "," : string.Empty;
-                    sb.AppendLine($"        {selectItems[i]}{comma}");
+                    sb.Append(def.PreQueryLogic);
+                    if (!def.PreQueryLogic.EndsWith(Environment.NewLine))
+                    {
+                        sb.AppendLine();
+                    }
+
+                    sb.AppendLine();
                 }
 
-                // ── FROM ───────────────────────────────────────────────────
-                sb.AppendLine(
-                    $"    FROM {QuoteName(def.DatabaseName)}.{QuoteName(def.SchemaName)}.{QuoteName(def.TableOrViewName)}");
-
-                // ── GROUP BY ───────────────────────────────────────────────
-                if (hasGroupBy)
+                sb.AppendLine("SELECT");
+                if (selectItems.Count == 0)
                 {
-                    sb.Append("    GROUP BY ");
+                    sb.AppendLine("    1 AS [__placeholder]");
+                }
+                else
+                {
+                    for (int i = 0; i < selectItems.Count; i++)
+                    {
+                        string comma = i < selectItems.Count - 1 ? "," : string.Empty;
+                        sb.AppendLine($"    {selectItems[i]}{comma}");
+                    }
+                }
+
+                sb.AppendLine($"FROM {QuoteName(def.DatabaseName)}.{QuoteName(def.SchemaName)}.{QuoteName(def.TableOrViewName)}");
+                foreach (var join in def.Joins.Where(j => j is not null))
+                {
+                    sb.AppendLine($"    {join.GetJoinExpression()}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(def.CustomWhereClause))
+                {
+                    sb.AppendLine($"WHERE {def.CustomWhereClause.Trim()}");
+                }
+
+                if (groupByFields.Any())
+                {
+                    sb.Append("GROUP BY ");
                     sb.AppendLine(string.Join(", ", groupByFields.Select(f => QuoteName(f.Name))));
                 }
 
-                // ── OPTION (RECOMPILE) — always present ────────────────────
-                sb.AppendLine("    OPTION (RECOMPILE);");
-                sb.AppendLine();
+                sb.AppendLine("OPTION (RECOMPILE);");
+                sb.AppendLine("SET NOCOUNT OFF;");
                 sb.AppendLine("END");
                 sb.AppendLine("GO");
 
@@ -117,8 +120,8 @@ namespace AutoReportWizard.Services
                 else
                 {
                     // Aggregate expression with alias
-                    string aggName    = field.Aggregate.ToString();
-                    string alias      = $"{field.Name}_{aggName}";
+                    string aggName = field.Aggregate.ToString();
+                    string alias = $"{field.Name}_{aggName}";
                     items.Add($"{aggName}({QuoteName(field.Name)}) AS {QuoteName(alias)}");
                 }
             }

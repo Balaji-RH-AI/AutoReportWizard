@@ -2,8 +2,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
+using AutoReportWizard.ViewModels;
 
-namespace AutoReportWizard
+namespace AutoReportWizard.Views
 {
     public partial class MainWindow : Window
     {
@@ -30,22 +31,25 @@ namespace AutoReportWizard
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
-            // 1. Force the XML to load right now
+            Dispatcher.BeginInvoke(new Action(InitializeWizardAsync), DispatcherPriority.Loaded);
+        }
+
+        private async void InitializeWizardAsync()
+        {
             AppState.Report.LoadDbInfoConfiguration();
 
-            // 2. Sync the loaded data into the ViewModel so the UI can see it
             AppState.ServerName = AppState.Report.ServerName;
             AppState.DatabaseName = AppState.Report.DatabaseName;
             AppState.Username = AppState.Report.Username;
             AppState.AuthType = AppState.Report.AuthType;
 
-            // 3. Evaluate the skip
             if (!string.IsNullOrWhiteSpace(AppState.ServerName))
             {
-                _currentStep = 2; // Jump directly to Dataset Definition
+                _currentStep = 2;
+                await AppState.LoadDatabaseOptionsAsync();
             }
 
-            Dispatcher.BeginInvoke(new Action(UpdateUI), DispatcherPriority.Loaded);
+            UpdateUI();
         }
 
         // ── Navigation ────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-<UserControl x:Class="AutoReportWizard.Step6View"
+<UserControl x:Class="AutoReportWizard.Views.Step6View"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:AutoReportWizard"
@@ -8,14 +8,22 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:InverseBoolConverter x:Key="InvBool"/>
 
-        <Style x:Key="GoldBtn" TargetType="Button">
-            <Setter Property="Background" Value="#D4AF37"/>
-            <Setter Property="Foreground" Value="#0A0A0A"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Padding" Value="18,9"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
+        <Style x:Key="GoldBtn"
+                TargetType="Button">
+            <Setter Property="Background"
+                    Value="#D4AF37"/>
+            <Setter Property="Foreground"
+                    Value="#0A0A0A"/>
+            <Setter Property="FontWeight"
+                    Value="Bold"/>
+            <Setter Property="FontSize"
+                    Value="13"/>
+            <Setter Property="Padding"
+                    Value="18,9"/>
+            <Setter Property="BorderThickness"
+                    Value="0"/>
+            <Setter Property="Cursor"
+                    Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -26,11 +34,15 @@
                                               VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#B8962A"/>
+                            <Trigger Property="IsMouseOver"
+                                    Value="True">
+                                <Setter Property="Background"
+                                        Value="#B8962A"/>
                             </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.35"/>
+                            <Trigger Property="IsEnabled"
+                                    Value="False">
+                                <Setter Property="Opacity"
+                                        Value="0.35"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -38,13 +50,20 @@
             </Setter>
         </Style>
 
-        <Style x:Key="DarkBtn" TargetType="Button">
-            <Setter Property="Background" Value="#2A2A2A"/>
-            <Setter Property="Foreground" Value="#E6E6E6"/>
-            <Setter Property="Padding" Value="12,7"/>
-            <Setter Property="BorderBrush" Value="#444"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Cursor" Value="Hand"/>
+        <Style x:Key="DarkBtn"
+                TargetType="Button">
+            <Setter Property="Background"
+                    Value="#2A2A2A"/>
+            <Setter Property="Foreground"
+                    Value="#E6E6E6"/>
+            <Setter Property="Padding"
+                    Value="12,7"/>
+            <Setter Property="BorderBrush"
+                    Value="#444"/>
+            <Setter Property="BorderThickness"
+                    Value="1"/>
+            <Setter Property="Cursor"
+                    Value="Hand"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -83,7 +102,8 @@
                    TextWrapping="Wrap"
                    Text="Enter stored procedure parameters, run a live preview, then generate the T-SQL and RDLC output files."/>
 
-        <Grid Grid.Row="2" Margin="0,0,0,18">
+        <Grid Grid.Row="2"
+                Margin="0,0,0,18">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="360"/>
                 <ColumnDefinition Width="18"/>
@@ -110,7 +130,8 @@
                                FontWeight="SemiBold"
                                Margin="0,0,0,10"/>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer Grid.Row="1"
+                            VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding Parameters}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -182,7 +203,8 @@
             </Border>
         </Grid>
 
-        <Grid Grid.Row="3" Margin="0,0,0,14">
+        <Grid Grid.Row="3"
+                Margin="0,0,0,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -223,7 +245,8 @@
                     BorderThickness="1"
                     CornerRadius="6"
                     Padding="10">
-                <ScrollViewer x:Name="LogScroller" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer x:Name="LogScroller"
+                        VerticalScrollBarVisibility="Auto">
                     <TextBox x:Name="LogBox"
                              Text="{Binding GenerationLog}"
                              Background="Transparent"

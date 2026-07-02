@@ -1,7 +1,9 @@
 ﻿using System.Windows;
 using System.Windows.Controls;
 
-namespace AutoReportWizard
+using AutoReportWizard.ViewModels;
+
+namespace AutoReportWizard.Views
 {
     public partial class Step1View : UserControl
     {
