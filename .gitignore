@@ -326,6 +326,10 @@ paket-files/
 # FAKE - F# Make
 .fake/
 
+# Ignore local database credentials
+DBInfo.xml
+DBInfo (*).xml
+
 # CodeRush personal settings
 .cr/personal
 
