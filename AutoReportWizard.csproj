@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>AutoReportWizard</RootNamespace>
+    <AssemblyName>AutoReportWizard</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ADO.NET with Integrated Windows Authentication + connection pooling -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+    <PackageReference Include="OllamaSharp" Version="5.4.25" />
+
+    <!-- Polly 8.x — resilience pipelines with exponential backoff -->
+    <PackageReference Include="Polly" Version="8.4.2" />
+    <PackageReference Include="Polly.Core" Version="8.4.2" />
+
+    <!-- OpenTelemetry — structured telemetry + console exporter -->
+    <PackageReference Include="OpenTelemetry" Version="1.9.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.9.0" />
+  </ItemGroup>
+
+  <!-- Embed XSD schema files for RDLC validation -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\*.xsd" />
+  </ItemGroup>
+
+</Project>
+
