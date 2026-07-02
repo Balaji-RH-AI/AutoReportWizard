@@ -23,7 +23,11 @@
     <PackageReference Include="OpenTelemetry" Version="1.9.0" />
     <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.9.0" />
   </ItemGroup>
-
+<ItemGroup>
+    <None Update="DBInfo.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
   <!-- Embed XSD schema files for RDLC validation -->
   <ItemGroup>
     <EmbeddedResource Include="Resources\*.xsd" />

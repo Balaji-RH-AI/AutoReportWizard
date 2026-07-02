@@ -98,11 +98,11 @@ namespace AutoReportWizard.Infrastructure
                 await using var connection = new SqlConnection(def.BuildConnectionString());
                 await connection.OpenAsync(ct);
 
-                // Use SQL Server's native engine to parse the script's output columns safely
+                // Added 'error_message' to the SELECT so we can catch TempTable failures
                 const string sql = @"
-                    SELECT name, system_type_name, column_ordinal
+                    SELECT name, system_type_name, column_ordinal, error_message
                     FROM sys.dm_exec_describe_first_result_set(@CustomQuery, NULL, 0)
-                    WHERE is_hidden = 0
+                    WHERE is_hidden = 0 OR error_message IS NOT NULL
                     ORDER BY column_ordinal;";
 
                 await using var cmd = new SqlCommand(sql, connection);
@@ -112,6 +112,15 @@ namespace AutoReportWizard.Infrastructure
 
                 while (await reader.ReadAsync(ct))
                 {
+                    // Check if SQL Server returned an explicit parsing error
+                    if (!reader.IsDBNull(3))
+                    {
+                        string errorMsg = reader.GetString(3);
+                        throw new InvalidOperationException($"SQL Server rejected the query schema. {errorMsg}");
+                    }
+
+                    if (reader.IsDBNull(0) || reader.IsDBNull(1)) continue;
+
                     string colName = reader.GetString(0);
                     string sqlType = reader.GetString(1);
                     int colOrder = reader.GetInt32(2);

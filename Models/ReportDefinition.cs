@@ -36,7 +36,10 @@ namespace AutoReportWizard.Models
         /// .NET type, aggregation settings, and layout flags.
         /// </summary>
         public List<ReportField> Fields { get; set; } = new();
-
+        /// <summary>
+        /// Visually configured table joins for the template-driven SQL builder.
+        /// </summary>
+        public List<TableJoin> Joins { get; set; } = new();
         /// <summary>
         /// Stores the raw, user-edited T-SQL from the Step 3 Live Editor.
         /// </summary>
@@ -60,11 +63,11 @@ namespace AutoReportWizard.Models
         public bool IncludePageNumbers { get; set; } = true;
         public bool IncludeGrandTotals { get; set; }
         public string? DynamicHeaderFieldName { get; set; }
-        public string HeaderSiteValue { get; set; } = "70 LouisvilleKY";
-        public string HeaderProcessDateValue { get; set; } = "05/06/2026";
-        public string HeaderJulianValue { get; set; } = "126";
-        public string HeaderWorksourceValue { get; set; } = "7700428";
-        public string HeaderLoadValue { get; set; } = "21";
+        public string? HeaderSiteField { get; set; }
+        public string? HeaderProcessDateField { get; set; }
+        public string? HeaderJulianField { get; set; }
+        public string? HeaderWorksourceField { get; set; }
+        public string? HeaderLoadField { get; set; }
         public string HeaderPageValue { get; set; } = "1 / 58";
         public string HeaderBatchNumber { get; set; } = "3292";
         public string StaticHeaderLeftLine1 { get; set; } = "Site : [Expr]";
@@ -87,16 +90,14 @@ namespace AutoReportWizard.Models
         /// </summary>
         public string BuildConnectionString()
         {
-            LoadDbInfoConfiguration();
-
             var builder = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder
             {
                 DataSource = ServerName,
                 InitialCatalog = DatabaseName,
-                TrustServerCertificate = true, // Required for self-signed certs on corp networks
-                ConnectTimeout = 30,
+                TrustServerCertificate = true,
+                ConnectTimeout = 15,     // Fail faster if the server is unreachable
                 MinPoolSize = 1,
-                MaxPoolSize = 10,
+                MaxPoolSize = 300,       // Matches your DBInfo.xml setting to prevent pool exhaustion
                 Pooling = true
             };
 
@@ -172,13 +173,13 @@ namespace AutoReportWizard.Models
 
             try
             {
-                // Attempt to decode the Base64 password from DBInfo.xml
+                // Decode the Base64 password from DBInfo.xml
                 byte[] data = Convert.FromBase64String(encryptedPassword);
                 return System.Text.Encoding.UTF8.GetString(data);
             }
             catch
             {
-                // If it fails to parse (e.g., it's plain text or a different encryption), fallback to raw
+                // Fallback to the raw string if it fails to parse
                 return encryptedPassword;
             }
         }

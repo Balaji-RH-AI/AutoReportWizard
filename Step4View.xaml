@@ -5,8 +5,6 @@
 
         <UserControl.Resources>
                 <BooleanToVisibilityConverter x:Key="BoolToVis"/>
-
-                <!-- Toggle row style -->
                 <Style x:Key="ToggleRow"
                        TargetType="Border">
                         <Setter Property="Background"
@@ -16,13 +14,12 @@
                         <Setter Property="Padding"
                                 Value="16,12"/>
                         <Setter Property="Margin"
-                                Value="0,0,0,8"/>
+                                Value="0,0,0,10"/>
                         <Setter Property="BorderBrush"
                                 Value="#333"/>
                         <Setter Property="BorderThickness"
                                 Value="1"/>
                 </Style>
-
                 <Style x:Key="ToggleLabel"
                        TargetType="TextBlock">
                         <Setter Property="Foreground"
@@ -32,7 +29,6 @@
                         <Setter Property="VerticalAlignment"
                                 Value="Center"/>
                 </Style>
-
                 <Style x:Key="ToggleDesc"
                        TargetType="TextBlock">
                         <Setter Property="Foreground"
@@ -42,215 +38,194 @@
                 </Style>
         </UserControl.Resources>
 
-        <Grid>
-                <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="24"/>
-                        <ColumnDefinition Width="280"/>
-                </Grid.ColumnDefinitions>
+        <Grid Margin="20">
+                <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
 
-                <!-- ── Left: configuration ──────────────────────────────────────── -->
-                <ScrollViewer Grid.Column="0"
-                              VerticalScrollBarVisibility="Auto">
-                        <StackPanel>
-                                <TextBlock Text="Header &amp; Footer"
-                                           Foreground="White"
-                                           FontSize="26"
-                                           FontWeight="Bold"/>
-                                <TextBlock Foreground="Gray"
-                                           FontSize="13"
-                                           Margin="0,5,0,24"
-                                           TextWrapping="Wrap"
-                                           Text="Configure the report title, optional subtitle, and toggle which footer elements to include."/>
-
-                                <!-- Report Title -->
-                                <TextBlock Text="Report Title"
-                                           Foreground="#D4AF37"
-                                           FontWeight="SemiBold"
-                                           Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding ReportTitle, UpdateSourceTrigger=PropertyChanged}"
-                                         Background="#1A1A1A"
-                                         Foreground="White"
-                                         BorderBrush="#444"
-                                         Padding="10"
-                                         FontSize="14"
-                                         Margin="0,0,0,16"/>
-
-                                <!-- Subtitle -->
-                                <TextBlock Text="Subtitle / Description (optional)"
-                                           Foreground="#D4AF37"
-                                           FontWeight="SemiBold"
-                                           Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding ReportSubtitle, UpdateSourceTrigger=PropertyChanged}"
-                                         Background="#1A1A1A"
-                                         Foreground="White"
-                                         BorderBrush="#444"
-                                         Padding="10"
-                                         FontSize="13"
-                                         Margin="0,0,0,24"/>
-
-
-                                <!-- Toggle: Execution Time -->
-                                <Border Style="{StaticResource ToggleRow}">
-                                        <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel Grid.Column="0"
-                                                            VerticalAlignment="Center">
-                                                        <TextBlock Text="⏱  Execution Time"
-                                                                   Style="{StaticResource ToggleLabel}"/>
-                                                        <TextBlock Text="Globals!ExecutionTime in footer"
-                                                                   Style="{StaticResource ToggleDesc}"/>
-                                                </StackPanel>
-                                                <CheckBox Grid.Column="1"
-                                                          VerticalAlignment="Center"
-                                                          IsChecked="{Binding IncludeExecutionTime}"/>
-                                        </Grid>
-                                </Border>
-
-                                <!-- Toggle: Page Numbers -->
-                                <Border Style="{StaticResource ToggleRow}">
-                                        <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel Grid.Column="0"
-                                                            VerticalAlignment="Center">
-                                                        <TextBlock Text="📄  Page Numbers"
-                                                                   Style="{StaticResource ToggleLabel}"/>
-                                                        <TextBlock Text="Page N of M in footer"
-                                                                   Style="{StaticResource ToggleDesc}"/>
-                                                </StackPanel>
-                                                <CheckBox Grid.Column="1"
-                                                          VerticalAlignment="Center"
-                                                          IsChecked="{Binding IncludePageNumbers}"/>
-                                        </Grid>
-                                </Border>
-
-                                <!-- Toggle: Grand Totals -->
-                                <Border Style="{StaticResource ToggleRow}">
-                                        <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel Grid.Column="0"
-                                                            VerticalAlignment="Center">
-                                                        <TextBlock Text="∑  Grand Totals Row"
-                                                                   Style="{StaticResource ToggleLabel}"/>
-                                                        <TextBlock Text="SUM aggregate row appended to Tablix"
-                                                                   Style="{StaticResource ToggleDesc}"/>
-                                                </StackPanel>
-                                                <CheckBox Grid.Column="1"
-                                                          VerticalAlignment="Center"
-                                                          IsChecked="{Binding IncludeGrandTotals}"/>
-                                        </Grid>
-                                </Border>
-                        </StackPanel>
-                </ScrollViewer>
-
-                <!-- ── Right: live header/footer preview ────────────────────────── -->
-                <StackPanel Grid.Column="2">
-                        <TextBlock Text="Live Preview"
-                                   Foreground="#D4AF37"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"
-                                   Margin="0,0,0,12"/>
-
-                        <!-- Simulated report page card -->
-                        <Border Background="White"
-                                CornerRadius="6"
-                                Padding="12"
-                                MinHeight="320">
-                                <Grid>
-                                        <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="*"/>
-                                                <RowDefinition Height="Auto"/>
-                                        </Grid.RowDefinitions>
-
-                                        <!-- Header preview -->
-                                        <StackPanel Grid.Row="0"
-                                                    Margin="0,0,0,8">
-                                                <TextBlock Text="{Binding ReportTitle}"
-                                                           FontSize="15"
-                                                           FontWeight="Bold"
-                                                           Foreground="#1F4E79"
-                                                           TextWrapping="Wrap"/>
-                                                <TextBlock Text="{Binding ReportSubtitle}"
-                                                           FontSize="10"
-                                                           Foreground="#888"
-                                                           TextWrapping="Wrap"/>
-                                                <TextBlock FontSize="9"
-                                                           Foreground="#AAA"
-                                                           Margin="0,2,0,0"
-                                                           Visibility="{Binding DynamicHeaderFieldName,
-                                       Converter={StaticResource BoolToVis}}">
-                            <Run Text="{Binding DynamicHeaderFieldName}"/>
-                            <Run Text=": (dynamic value)"/>
-                                                </TextBlock>
-                                                <Border Background="#1F4E79"
-                                                        Height="2"
-                                                        Margin="0,6,0,0"/>
-                                        </StackPanel>
-
-                                        <!-- Body placeholder -->
-                                        <StackPanel Grid.Row="1">
-                                                <Border Background="#F5F5F5"
-                                                        Height="20"
-                                                        Margin="0,0,0,4"
-                                                        CornerRadius="2"/>
-                                                <Border Background="#EBEBEB"
-                                                        Height="20"
-                                                        Margin="0,0,0,4"
-                                                        CornerRadius="2"/>
-                                                <Border Background="#F5F5F5"
-                                                        Height="20"
-                                                        Margin="0,0,0,4"
-                                                        CornerRadius="2"/>
-                                                <Border Background="#EBEBEB"
-                                                        Height="20"
-                                                        Margin="0,0,0,4"
-                                                        CornerRadius="2"/>
-                                                <Border Background="#D9E1F2"
-                                                        Height="20"
-                                                        Margin="0,4,0,0"
-                                                        CornerRadius="2"
-                                                        Visibility="{Binding IncludeGrandTotals, Converter={StaticResource BoolToVis}}">
-                                                        <TextBlock Text="Grand Total"
-                                                                   FontSize="9"
-                                                                   FontWeight="Bold"
-                                                                   Foreground="#1F4E79"
-                                                                   HorizontalAlignment="Left"
-                                                                   VerticalAlignment="Center"
-                                                                   Margin="6,0"/>
-                                                </Border>
-                                        </StackPanel>
-
-                                        <!-- Footer preview -->
-                                        <Grid Grid.Row="2"
-                                              Margin="0,8,0,0">
-                                                <Border Background="#EEEEEE"
-                                                        Height="1"
-                                                        VerticalAlignment="Top"/>
-                                                <Grid Margin="0,4,0,0">
-                                                        <TextBlock HorizontalAlignment="Left"
-                                                                        FontSize="8"
-                                                                        Foreground="#888"
-                                                                   Text="{Binding CurrentPreviewTime, StringFormat='Execution: {0}'}"
-                                                                   Visibility="{Binding IncludeExecutionTime, Converter={StaticResource BoolToVis}}"/>
-                                                        <TextBlock HorizontalAlignment="Right"
-                                                                   FontSize="8"
-                                                                   Foreground="#888"
-                                                                   Text="Page 1 of N"
-                                                                   Visibility="{Binding IncludePageNumbers, Converter={StaticResource BoolToVis}}"/>
-                                                </Grid>
-                                        </Grid>
-                                </Grid>
-                        </Border>
+                <StackPanel Grid.Row="0"
+                            Margin="0,0,0,24">
+                        <TextBlock Text="Header &amp; Footer Configuration"
+                                   Foreground="White"
+                                   FontSize="26"
+                                   FontWeight="Bold"/>
+                        <TextBlock Text="Set your report title and configure footer elements."
+                                   Foreground="Gray"
+                                   FontSize="13"
+                                   Margin="0,5,0,0"
+                                   TextWrapping="Wrap"/>
                 </StackPanel>
+
+                <ScrollViewer Grid.Row="1"
+                              VerticalScrollBarVisibility="Auto">
+                        <Grid>
+                                <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="3*"/>
+                                        <ColumnDefinition Width="50"/>
+                                        <ColumnDefinition Width="2*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0">
+                                        <TextBlock Text="Report Title"
+                                                   Foreground="#D4AF37"
+                                                   FontWeight="SemiBold"
+                                                   Margin="0,0,0,6"/>
+                                        <TextBox Text="{Binding ReportTitle, UpdateSourceTrigger=PropertyChanged}"
+                                                 Background="#1A1A1A"
+                                                 Foreground="White"
+                                                 BorderBrush="#444"
+                                                 Padding="10"
+                                                 FontSize="14"
+                                                 Margin="0,0,0,20"/>
+
+                                        <TextBlock Text="Subtitle / Description"
+                                                   Foreground="#D4AF37"
+                                                   FontWeight="SemiBold"
+                                                   Margin="0,0,0,6"/>
+                                        <TextBox Text="{Binding ReportSubtitle, UpdateSourceTrigger=PropertyChanged}"
+                                                 Background="#1A1A1A"
+                                                 Foreground="White"
+                                                 BorderBrush="#444"
+                                                 Padding="10"
+                                                 FontSize="13"
+                                                 AcceptsReturn="True"
+                                                 MinLines="4"
+                                                 Margin="0,0,0,20"/>
+
+                                        <TextBlock Text="Page Header Field Mappings"
+                                                   Foreground="#D4AF37"
+                                                   FontWeight="SemiBold"
+                                                   Margin="0,0,0,6"/>
+                                        <TextBlock Text="Select dataset columns to populate the page header labels using SSRS expressions."
+                                                   Foreground="#777"
+                                                   FontSize="11"
+                                                   Margin="0,0,0,10"
+                                                   TextWrapping="Wrap"/>
+                                        <Border Background="#151515"
+                                                BorderBrush="#333"
+                                                BorderThickness="1"
+                                                CornerRadius="6"
+                                                Padding="12"
+                                                Margin="0,0,0,20">
+                                                <StackPanel>
+                                                        <TextBlock Text="Site"
+                                                                   Foreground="White"
+                                                                   FontSize="13"
+                                                                   Margin="0,0,0,4"/>
+                                                        <ComboBox ItemsSource="{Binding Fields}"
+                                                                  DisplayMemberPath="Name"
+                                                                  SelectedValuePath="Name"
+                                                                  SelectedValue="{Binding HeaderSiteField, UpdateSourceTrigger=PropertyChanged}"
+                                                                  Background="#1A1A1A"
+                                                                  Foreground="White"
+                                                                  BorderBrush="#444"
+                                                                  Padding="8"
+                                                                  Margin="0,0,0,10"/>
+
+                                                        <TextBlock Text="Process Date"
+                                                                   Foreground="White"
+                                                                   FontSize="13"
+                                                                   Margin="0,0,0,4"/>
+                                                        <ComboBox ItemsSource="{Binding Fields}"
+                                                                  DisplayMemberPath="Name"
+                                                                  SelectedValuePath="Name"
+                                                                  SelectedValue="{Binding HeaderProcessDateField, UpdateSourceTrigger=PropertyChanged}"
+                                                                  Background="#1A1A1A"
+                                                                  Foreground="White"
+                                                                  BorderBrush="#444"
+                                                                  Padding="8"
+                                                                  Margin="0,0,0,10"/>
+
+                                                        <TextBlock Text="Julian Date"
+                                                                   Foreground="White"
+                                                                   FontSize="13"
+                                                                   Margin="0,0,0,4"/>
+                                                        <ComboBox ItemsSource="{Binding Fields}"
+                                                                  DisplayMemberPath="Name"
+                                                                  SelectedValuePath="Name"
+                                                                  SelectedValue="{Binding HeaderJulianField, UpdateSourceTrigger=PropertyChanged}"
+                                                                  Background="#1A1A1A"
+                                                                  Foreground="White"
+                                                                  BorderBrush="#444"
+                                                                  Padding="8"
+                                                                  Margin="0,0,0,10"/>
+
+                                                        <TextBlock Text="Worksource"
+                                                                   Foreground="White"
+                                                                   FontSize="13"
+                                                                   Margin="0,0,0,4"/>
+                                                        <ComboBox ItemsSource="{Binding Fields}"
+                                                                  DisplayMemberPath="Name"
+                                                                  SelectedValuePath="Name"
+                                                                  SelectedValue="{Binding HeaderWorksourceField, UpdateSourceTrigger=PropertyChanged}"
+                                                                  Background="#1A1A1A"
+                                                                  Foreground="White"
+                                                                  BorderBrush="#444"
+                                                                  Padding="8"
+                                                                  Margin="0,0,0,10"/>
+
+                                                        <TextBlock Text="Load Number"
+                                                                   Foreground="White"
+                                                                   FontSize="13"
+                                                                   Margin="0,0,0,4"/>
+                                                        <ComboBox ItemsSource="{Binding Fields}"
+                                                                  DisplayMemberPath="Name"
+                                                                  SelectedValuePath="Name"
+                                                                  SelectedValue="{Binding HeaderLoadField, UpdateSourceTrigger=PropertyChanged}"
+                                                                  Background="#1A1A1A"
+                                                                  Foreground="White"
+                                                                  BorderBrush="#444"
+                                                                  Padding="8"/>
+                                                </StackPanel>
+                                        </Border>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="2">
+                                        <TextBlock Text="Footer Elements"
+                                                   Foreground="#D4AF37"
+                                                   FontWeight="SemiBold"
+                                                   Margin="0,0,0,10"/>
+
+                                        <Border Style="{StaticResource ToggleRow}">
+                                                <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="0"
+                                                                    VerticalAlignment="Center">
+                                                                <TextBlock Text="⏱ Execution Time"
+                                                                           Style="{StaticResource ToggleLabel}"/>
+                                                                <TextBlock Text="Show time on the bottom left."
+                                                                           Style="{StaticResource ToggleDesc}"/>
+                                                        </StackPanel>
+                                                        <CheckBox Grid.Column="1"
+                                                                  VerticalAlignment="Center"
+                                                                  IsChecked="{Binding IncludeExecutionTime}"/>
+                                                </Grid>
+                                        </Border>
+
+                                        <Border Style="{StaticResource ToggleRow}">
+                                                <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="0"
+                                                                    VerticalAlignment="Center">
+                                                                <TextBlock Text="📄 Page Numbers"
+                                                                           Style="{StaticResource ToggleLabel}"/>
+                                                                <TextBlock Text="Show Page N of M on the bottom right."
+                                                                           Style="{StaticResource ToggleDesc}"/>
+                                                        </StackPanel>
+                                                        <CheckBox Grid.Column="1"
+                                                                  VerticalAlignment="Center"
+                                                                  IsChecked="{Binding IncludePageNumbers}"/>
+                                                </Grid>
+                                        </Border>
+                                </StackPanel>
+                        </Grid>
+                </ScrollViewer>
         </Grid>
 </UserControl>

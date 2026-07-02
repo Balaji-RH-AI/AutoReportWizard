@@ -22,13 +22,13 @@ namespace AutoReportWizard.Services
             "http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition";
 
         // ── Defaults ──────────────────────────────────────────────────────────
-        private const double TotalWidthInches  = 10.0;
-        private const double PageHeightInches  = 11.0;
-        private const double MarginInches      = 0.5;
+        private const double TotalWidthInches = 10.0;
+        private const double PageHeightInches = 11.0;
+        private const double MarginInches = 0.5;
         private const double HeaderHeightInches = 0.4;
-        private const double RowHeightInches    = 0.25;
-        private const double FontSizePt         = 10;
-        private const double HeaderFontSizePt   = 8;
+        private const double RowHeightInches = 0.25;
+        private const double FontSizePt = 10;
+        private const double HeaderFontSizePt = 8;
 
         /// <summary>
         /// Builds the complete RDLC XDocument from a ReportDefinition.
@@ -67,16 +67,16 @@ namespace AutoReportWizard.Services
                             ),
                             new XElement(Rdl + "Height", $"{PageHeightInches - MarginInches * 2 - HeaderHeightInches}in")
                         ),
-                        new XElement(Rdl + "Width",  $"{TotalWidthInches}in"),
+                        new XElement(Rdl + "Width", $"{TotalWidthInches}in"),
                         new XElement(Rdl + "Page",
                             BuildPageHeader(def),
                             BuildPageFooter(def),
-                            new XElement(Rdl + "TopMargin",    $"{MarginInches}in"),
+                            new XElement(Rdl + "TopMargin", $"{MarginInches}in"),
                             new XElement(Rdl + "BottomMargin", $"{MarginInches}in"),
-                            new XElement(Rdl + "LeftMargin",   $"{MarginInches}in"),
-                            new XElement(Rdl + "RightMargin",  $"{MarginInches}in"),
-                            new XElement(Rdl + "PageHeight",   $"{PageHeightInches}in"),
-                            new XElement(Rdl + "PageWidth",    $"{TotalWidthInches}in")
+                            new XElement(Rdl + "LeftMargin", $"{MarginInches}in"),
+                            new XElement(Rdl + "RightMargin", $"{MarginInches}in"),
+                            new XElement(Rdl + "PageHeight", $"{PageHeightInches}in"),
+                            new XElement(Rdl + "PageWidth", $"{TotalWidthInches}in")
                         )
                     )
                 )
@@ -96,7 +96,7 @@ namespace AutoReportWizard.Services
                 new XElement(Rdl + "DataSource",
                     new XAttribute("Name", "AutoReportDS"),
                     new XElement(Rdl + "ConnectionProperties",
-                        new XElement(Rdl + "DataProvider",  "SQL"),
+                        new XElement(Rdl + "DataProvider", "SQL"),
                         new XElement(Rdl + "ConnectString",
                             $"Data Source={def.ServerName};" +
                             $"Initial Catalog={def.DatabaseName};" +
@@ -117,7 +117,7 @@ namespace AutoReportWizard.Services
                 .Select(f => new XElement(Rdl + "Field",
                     new XAttribute("Name", f.GetDatasetFieldName()),
                     new XElement(Rdl + "DataField", f.GetDatasetFieldName()),
-                    new XElement(Rdl + "TypeName",  f.DotNetType)
+                    new XElement(Rdl + "TypeName", f.DotNetType)
                 ));
 
             return new XElement(Rdl + "DataSets",
@@ -125,7 +125,7 @@ namespace AutoReportWizard.Services
                     new XAttribute("Name", "MainDataSet"),
                     new XElement(Rdl + "Query",
                         new XElement(Rdl + "DataSourceName", "AutoReportDS"),
-                        new XElement(Rdl + "CommandType",    "StoredProcedure"),
+                        new XElement(Rdl + "CommandType", "StoredProcedure"),
                         new XElement(Rdl + "CommandText",
                             $"{def.SchemaName}.{def.StoredProcName}")
                     ),
@@ -182,10 +182,10 @@ namespace AutoReportWizard.Services
                     )
                 ),
                 new XElement(Rdl + "DataSetName", "MainDataSet"),
-                new XElement(Rdl + "Top",    $"{HeaderHeightInches * 2}in"),
-                new XElement(Rdl + "Left",   "0in"),
+                new XElement(Rdl + "Top", $"{HeaderHeightInches * 2}in"),
+                new XElement(Rdl + "Left", "0in"),
                 new XElement(Rdl + "Height", $"{RowHeightInches * 3}in"),
-                new XElement(Rdl + "Width",  $"{colWidth * detailFields.Count}in")
+                new XElement(Rdl + "Width", $"{colWidth * detailFields.Count}in")
             );
         }
 
@@ -300,12 +300,56 @@ namespace AutoReportWizard.Services
                 top += 0.2;
             }
 
-            // Dynamic field injection
-            if (!string.IsNullOrWhiteSpace(def.DynamicHeaderFieldName))
+            // Dynamic page header mappings using SSRS expressions
+            if (!string.IsNullOrWhiteSpace(def.HeaderSiteField))
             {
                 items.Add(MakeTextBox(
-                    "txtDynHeader",
-                    $"={def.DynamicHeaderFieldName}: \" & First(Fields!{def.DynamicHeaderFieldName}.Value, \"MainDataSet\")",
+                    "txtHeaderSite",
+                    $"=\"Site: \" & First(Fields!{def.HeaderSiteField}.Value, \"MainDataSet\")",
+                    isExpression: true, bold: false, fontSize: 10,
+                    bgColor: "Transparent", fgColor: "Black",
+                    top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
+                top += 0.16;
+            }
+
+            if (!string.IsNullOrWhiteSpace(def.HeaderProcessDateField))
+            {
+                items.Add(MakeTextBox(
+                    "txtHeaderProcessDate",
+                    $"=\"Process Date: \" & First(Fields!{def.HeaderProcessDateField}.Value, \"MainDataSet\")",
+                    isExpression: true, bold: false, fontSize: 10,
+                    bgColor: "Transparent", fgColor: "Black",
+                    top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
+                top += 0.16;
+            }
+
+            if (!string.IsNullOrWhiteSpace(def.HeaderJulianField))
+            {
+                items.Add(MakeTextBox(
+                    "txtHeaderJulian",
+                    $"=\"Julian Date: \" & First(Fields!{def.HeaderJulianField}.Value, \"MainDataSet\")",
+                    isExpression: true, bold: false, fontSize: 10,
+                    bgColor: "Transparent", fgColor: "Black",
+                    top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
+                top += 0.16;
+            }
+
+            if (!string.IsNullOrWhiteSpace(def.HeaderWorksourceField))
+            {
+                items.Add(MakeTextBox(
+                    "txtHeaderWorksource",
+                    $"=\"Worksource: \" & First(Fields!{def.HeaderWorksourceField}.Value, \"MainDataSet\")",
+                    isExpression: true, bold: false, fontSize: 10,
+                    bgColor: "Transparent", fgColor: "Black",
+                    top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
+                top += 0.16;
+            }
+
+            if (!string.IsNullOrWhiteSpace(def.HeaderLoadField))
+            {
+                items.Add(MakeTextBox(
+                    "txtHeaderLoad",
+                    $"=\"Load Number: \" & First(Fields!{def.HeaderLoadField}.Value, \"MainDataSet\")",
                     isExpression: true, bold: false, fontSize: 10,
                     bgColor: "Transparent", fgColor: "Black",
                     top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
@@ -313,8 +357,8 @@ namespace AutoReportWizard.Services
 
             return new XElement(Rdl + "PageHeader",
                 new XElement(Rdl + "Height", $"{HeaderHeightInches}in"),
-                new XElement(Rdl + "PrintOnFirstPage",  "true"),
-                new XElement(Rdl + "PrintOnLastPage",   "true"),
+                new XElement(Rdl + "PrintOnFirstPage", "true"),
+                new XElement(Rdl + "PrintOnLastPage", "true"),
                 new XElement(Rdl + "ReportItems", items)
             );
         }
@@ -347,9 +391,9 @@ namespace AutoReportWizard.Services
             }
 
             return new XElement(Rdl + "PageFooter",
-                new XElement(Rdl + "Height",            "0.25in"),
-                new XElement(Rdl + "PrintOnFirstPage",  "true"),
-                new XElement(Rdl + "PrintOnLastPage",   "true"),
+                new XElement(Rdl + "Height", "0.25in"),
+                new XElement(Rdl + "PrintOnFirstPage", "true"),
+                new XElement(Rdl + "PrintOnLastPage", "true"),
                 new XElement(Rdl + "ReportItems", items)
             );
         }
@@ -359,13 +403,13 @@ namespace AutoReportWizard.Services
         private static XElement MakeTextBox(
             string name,
             string value,
-            bool   isExpression,
-            bool   bold,
+            bool isExpression,
+            bool bold,
             double fontSize,
             string bgColor,
             string fgColor,
-            double top   = 0,
-            double left  = 0,
+            double top = 0,
+            double left = 0,
             double width = 2.0,
             double height = 0.25)
         {
@@ -378,9 +422,9 @@ namespace AutoReportWizard.Services
                             new XElement(Rdl + "TextRun",
                                 new XElement(Rdl + "Value", isExpression ? value : $"\"{value}\""),
                                 new XElement(Rdl + "Style",
-                                    new XElement(Rdl + "FontSize",   $"{fontSize}pt"),
+                                    new XElement(Rdl + "FontSize", $"{fontSize}pt"),
                                     new XElement(Rdl + "FontWeight", bold ? "Bold" : "Normal"),
-                                    new XElement(Rdl + "Color",      fgColor)
+                                    new XElement(Rdl + "Color", fgColor)
                                 )
                             )
                         )
@@ -395,10 +439,10 @@ namespace AutoReportWizard.Services
                         new XElement(Rdl + "Default", "#CCCCCC")
                     )
                 ),
-                new XElement(Rdl + "Top",    $"{top}in"),
-                new XElement(Rdl + "Left",   $"{left}in"),
+                new XElement(Rdl + "Top", $"{top}in"),
+                new XElement(Rdl + "Left", $"{left}in"),
                 new XElement(Rdl + "Height", $"{height}in"),
-                new XElement(Rdl + "Width",  $"{width}in")
+                new XElement(Rdl + "Width", $"{width}in")
             );
         }
     }

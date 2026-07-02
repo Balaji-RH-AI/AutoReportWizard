@@ -19,18 +19,19 @@ namespace AutoReportWizard
 
         // â”€â”€ Database Fetching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-        private async void RefreshDatabases_MouseDown(object sender, MouseButtonEventArgs e)
+        // Add a flag to prevent multiple rapid clicks
+        private bool _isConnecting = false;
+
+        private async void RefreshDatabases_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (DataContext is not WizardViewModel vm) return;
+            if (_isConnecting || DataContext is not WizardViewModel vm) return;
+
+            _isConnecting = true;
+            System.Windows.Input.Mouse.OverrideCursor = System.Windows.Input.Cursors.Wait;
+
             vm.AvailableDatabases.Clear();
             vm.AvailableSchemas.Clear();
             vm.AvailableTables.Clear();
-
-            vm.Report.LoadDbInfoConfiguration();
-            vm.ServerName = vm.Report.ServerName;
-            vm.DatabaseName = vm.Report.DatabaseName;
-            vm.AuthType = vm.Report.AuthType;
-            vm.Username = vm.Report.Username;
 
             try
             {
@@ -40,9 +41,15 @@ namespace AutoReportWizard
                 if (!string.IsNullOrWhiteSpace(vm.DatabaseName) && vm.AvailableDatabases.Contains(vm.DatabaseName))
                     vm.SelectedDatabase = vm.DatabaseName;
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
-                MessageBox.Show($"Failed to load databases: {ex.Message}", "Connection Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Connection failed. Please verify your VPN is connected and {vm.ServerName} is reachable.\n\nError: {ex.Message}",
+                                "Network Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                _isConnecting = false;
+                System.Windows.Input.Mouse.OverrideCursor = null;
             }
         }
 

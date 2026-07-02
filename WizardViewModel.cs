@@ -30,6 +30,20 @@ namespace AutoReportWizard
         /// <summary>Observable list of parameters — bound to Step 5.</summary>
         public ObservableCollection<ReportParameter> Parameters { get; } = new();
 
+        private bool _isBusy;
+        public bool IsBusy
+        {
+            get => _isBusy;
+            set
+            {
+                if (_isBusy == value)
+                    return;
+
+                _isBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
         public ICommand RunPreviewCommand { get; }
 
         public WizardViewModel()
@@ -199,6 +213,36 @@ namespace AutoReportWizard
         {
             get => Report.DynamicHeaderFieldName;
             set { Report.DynamicHeaderFieldName = value; OnPropertyChanged(); }
+        }
+
+        public string? HeaderSiteField
+        {
+            get => Report.HeaderSiteField;
+            set { Report.HeaderSiteField = value; OnPropertyChanged(); }
+        }
+
+        public string? HeaderProcessDateField
+        {
+            get => Report.HeaderProcessDateField;
+            set { Report.HeaderProcessDateField = value; OnPropertyChanged(); }
+        }
+
+        public string? HeaderJulianField
+        {
+            get => Report.HeaderJulianField;
+            set { Report.HeaderJulianField = value; OnPropertyChanged(); }
+        }
+
+        public string? HeaderWorksourceField
+        {
+            get => Report.HeaderWorksourceField;
+            set { Report.HeaderWorksourceField = value; OnPropertyChanged(); }
+        }
+
+        public string? HeaderLoadField
+        {
+            get => Report.HeaderLoadField;
+            set { Report.HeaderLoadField = value; OnPropertyChanged(); }
         }
 
         public string StaticHeaderLeftLine1

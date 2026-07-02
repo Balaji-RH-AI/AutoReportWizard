@@ -33,8 +33,8 @@ namespace AutoReportWizard
         private void AggCombo_Loaded(object sender, RoutedEventArgs e)
         {
             if (sender is not ComboBox combo || combo.Tag is not ReportField field) return;
-            combo.ItemsSource    = AggregateOptions;
-            combo.SelectedItem   = field.Aggregate;
+            combo.ItemsSource = AggregateOptions;
+            combo.SelectedItem = field.Aggregate;
         }
 
         // ── Event handlers ────────────────────────────────────────────────────
@@ -75,7 +75,6 @@ namespace AutoReportWizard
                 sb.AppendLine($"{selectItems[i]}{comma}");
             }
 
-            // Using standard bracket syntax for scaffolding
             string schemaClause = string.IsNullOrEmpty(vm.SchemaName) ? "dbo" : vm.SchemaName;
             sb.AppendLine($"FROM [{vm.DatabaseName}].[{schemaClause}].[{vm.TableOrViewName}]");
 
@@ -87,8 +86,46 @@ namespace AutoReportWizard
 
             sb.AppendLine("OPTION (RECOMPILE);");
 
-            // Write straight to the ViewModel so the UI editor updates instantly
             vm.CustomSql = sb.ToString();
+        }
+
+        // ── Parse Custom SQL to Layout ────────────────────────────────────────
+        private async void ParseCustomSql_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not WizardViewModel vm || string.IsNullOrWhiteSpace(vm.CustomSql)) return;
+
+            try
+            {
+                System.Windows.Input.Mouse.OverrideCursor = System.Windows.Input.Cursors.Wait;
+
+                var dbService = new Infrastructure.DatabaseService();
+
+                // Extract fields using SQL Server's native discovery
+                var customFields = await dbService.GetSchemaFromCustomSqlAsync(vm.Report);
+
+                // Clear existing layout fields
+                vm.Fields.Clear();
+                vm.AvailableFields.Clear();
+
+                foreach (var field in customFields)
+                {
+                    // Ensure the layout grid sees them as active detail fields
+                    field.IsDetailField = true;
+                    vm.Fields.Add(field);
+                }
+
+                MessageBox.Show($"Successfully parsed {customFields.Count} fields from your custom SQL. They are now available in the Layout tab.",
+                                "SQL Parsed", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to parse custom SQL. Ensure your syntax is correct and does not rely on complex temp tables (#) that sp_describe cannot resolve.\n\nError: {ex.Message}",
+                                "Parsing Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                System.Windows.Input.Mouse.OverrideCursor = null;
+            }
         }
     }
 }

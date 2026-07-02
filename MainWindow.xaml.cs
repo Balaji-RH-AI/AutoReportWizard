@@ -7,8 +7,6 @@ namespace AutoReportWizard
     public partial class MainWindow : Window
     {
         private int _currentStep = 1;
-
-        // Single ViewModel instance shared across ALL step views via DataContext
         public WizardViewModel AppState { get; } = new WizardViewModel();
 
         private static readonly string[] StepHints =
@@ -26,67 +24,67 @@ namespace AutoReportWizard
         {
             InitializeComponent();
             this.DataContext = AppState;
+            this.Loaded += MainWindow_Loaded;
+        }
+
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            // 1. Force the XML to load right now
+            AppState.Report.LoadDbInfoConfiguration();
+
+            // 2. Sync the loaded data into the ViewModel so the UI can see it
+            AppState.ServerName = AppState.Report.ServerName;
+            AppState.DatabaseName = AppState.Report.DatabaseName;
+            AppState.Username = AppState.Report.Username;
+            AppState.AuthType = AppState.Report.AuthType;
+
+            // 3. Evaluate the skip
+            if (!string.IsNullOrWhiteSpace(AppState.ServerName))
+            {
+                _currentStep = 2; // Jump directly to Dataset Definition
+            }
+
             UpdateUI();
         }
 
         // ── Navigation ────────────────────────────────────────────────────────
-
         private void NextButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentStep < 6)
-            {
-                _currentStep++;
-                UpdateUI();
-            }
+            if (_currentStep < 6) { _currentStep++; UpdateUI(); }
         }
 
         private void BackButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentStep > 1)
-            {
-                _currentStep--;
-                UpdateUI();
-            }
+            if (_currentStep > 1) { _currentStep--; UpdateUI(); }
+        }
+
+        private void ChangeConnection_Click(object sender, RoutedEventArgs e)
+        {
+            _currentStep = 1; UpdateUI(); // Escape hatch
         }
 
         // ── UI State ──────────────────────────────────────────────────────────
-
         private void UpdateUI()
         {
-            // ── Dynamic Window Sizing Strategy ────────────────────────────────
             switch (_currentStep)
             {
-                case 1: // Target Environment
-                    this.Width = 950; this.Height = 650;
-                    break;
-                case 2: // Dataset Definition
-                    this.Width = 1000; this.Height = 720;
-                    break;
-                case 3: // Group By & Editor
-                case 4: // Header & Footer
-                    this.Width = 1150; this.Height = 760;
-                    break;
-                case 5: // Visual Layout
-                case 6: // Generation Terminal
-                    this.Width = 1300; this.Height = 850;
-                    break;
+                case 1: this.Width = 950; this.Height = 650; break;
+                case 2: this.Width = 1000; this.Height = 720; break;
+                case 3:
+                case 4: this.Width = 1150; this.Height = 760; break;
+                case 5:
+                case 6: this.Width = 1300; this.Height = 850; break;
             }
 
-            // ── Bottom Bar Text & Buttons ─────────────────────────────────────
             StepHintText.Text = StepHints[_currentStep];
             BackButton.IsEnabled = _currentStep > 1;
             NextButton.Content = _currentStep == 6 ? "Generate Output ⚡" : "Next →";
-            NextButton.IsEnabled = _currentStep < 6;  // Step 6 uses its own Generate button
+            NextButton.IsEnabled = _currentStep < 6;
 
-            // ── Sidebar Step Icons ────────────────────────────────────────────
-            UpdateSidebarStep(1, Icon1, Text1);
-            UpdateSidebarStep(2, Icon2, Text2);
-            UpdateSidebarStep(3, Icon3, Text3);
-            UpdateSidebarStep(4, Icon4, Text4);
-            UpdateSidebarStep(5, Icon5, Text5);
-            UpdateSidebarStep(6, Icon6, Text6);
+            UpdateSidebarStep(1, Icon1, Text1); UpdateSidebarStep(2, Icon2, Text2);
+            UpdateSidebarStep(3, Icon3, Text3); UpdateSidebarStep(4, Icon4, Text4);
+            UpdateSidebarStep(5, Icon5, Text5); UpdateSidebarStep(6, Icon6, Text6);
 
-            // ── Swap step content ─────────────────────────────────────────────
             UserControl? view = _currentStep switch
             {
                 1 => new Step1View { DataContext = AppState },
@@ -98,32 +96,26 @@ namespace AutoReportWizard
                 _ => null
             };
 
-            if (view != null)
-            {
-                MainContentArea.Content = view;
-            }
+            if (view != null) MainContentArea.Content = view;
         }
 
         private void UpdateSidebarStep(int targetStep, TextBlock icon, TextBlock text)
         {
             if (targetStep < _currentStep)
             {
-                // Completed step — Green Checkmark
                 icon.Text = "✓";
                 icon.Foreground = new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50));
                 text.Foreground = new SolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA));
             }
             else if (targetStep == _currentStep)
             {
-                // Current step — Gold Dot
-                icon.Text = "●";
+                icon.Text = "■";
                 icon.Foreground = new SolidColorBrush(Color.FromRgb(0xD4, 0xAF, 0x37));
                 text.Foreground = new SolidColorBrush(Colors.White);
             }
             else
             {
-                // Future step — Hollow Gray Dot
-                icon.Text = "○";
+                icon.Text = "□";
                 icon.Foreground = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44));
                 text.Foreground = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55));
             }
