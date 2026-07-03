@@ -69,8 +69,6 @@ namespace AutoReportWizard.Models
         public string GetFullyQualifiedName()
         {
             var parts = new System.Collections.Generic.List<string>();
-            if (!string.IsNullOrEmpty(SourceDatabase)) parts.Add(QuoteName(SourceDatabase));
-            if (!string.IsNullOrEmpty(SourceSchema)) parts.Add(QuoteName(SourceSchema));
             if (!string.IsNullOrEmpty(SourceTable)) parts.Add(QuoteName(SourceTable));
 
             parts.Add(QuoteName(Name));

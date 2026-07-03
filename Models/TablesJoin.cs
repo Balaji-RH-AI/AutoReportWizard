@@ -11,9 +11,9 @@ namespace AutoReportWizard.Models
         public string JoinedTable { get; set; } = string.Empty;
         public string JoinedColumn { get; set; } = string.Empty;
 
-        public string GetJoinExpression()
+        public string GetJoinExpression(string databaseName, string schemaName)
         {
-            return $"INNER JOIN [{JoinedTable}] ON [{PrimaryTable}].[{PrimaryColumn}] = [{JoinedTable}].[{JoinedColumn}]";
+            return $"INNER JOIN [{databaseName}].[{schemaName}].[{JoinedTable}] AS [{JoinedTable}] ON [{PrimaryTable}].[{PrimaryColumn}] = [{JoinedTable}].[{JoinedColumn}]";
         }
     }
 }

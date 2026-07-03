@@ -22,6 +22,40 @@ namespace AutoReportWizard.Views
             }
         }
 
+        // ── Custom Dropdown Logic (Search & Select) ───────────────────────────
+
+        private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            // The TextBox Tag is bound to its sibling ListBox. This lets one method handle all 3 search bars.
+            if (sender is TextBox textBox && textBox.Tag is ListBox targetList && targetList.ItemsSource != null)
+            {
+                var view = System.Windows.Data.CollectionViewSource.GetDefaultView(targetList.ItemsSource);
+                view.Filter = item =>
+                {
+                    if (string.IsNullOrWhiteSpace(textBox.Text)) return true;
+                    return item?.ToString().Contains(textBox.Text, System.StringComparison.OrdinalIgnoreCase) ?? false;
+                };
+            }
+        }
+
+        private void DropdownList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // The ListBox Tag is bound to its parent ToggleButton. 
+            // This auto-closes the popup menu when the user clicks an item.
+            if (sender is ListBox listBox && listBox.Tag is System.Windows.Controls.Primitives.ToggleButton toggle)
+            {
+                toggle.IsChecked = false;
+
+                if (listBox.Parent is StackPanel panel)
+                {
+                    var searchBox = panel.Children.OfType<TextBox>().FirstOrDefault();
+                    if (searchBox != null)
+                    {
+                        searchBox.Text = string.Empty; // This clears the text AND resets the list filter
+                    }
+                }
+            }
+        }
         // ── Relational Joins UI Logic ─────────────────────────────────────────
 
         private void AddJoin_Click(object sender, RoutedEventArgs e)

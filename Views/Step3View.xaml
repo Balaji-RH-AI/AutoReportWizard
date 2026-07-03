@@ -136,19 +136,45 @@
             <Grid Grid.Row="0"
                   Margin="0,0,0,12">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="10"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="10"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0"
-                           Text="Live SQL Editor"
-                           Foreground="#D4AF37"
-                           FontSize="14"
-                           FontWeight="SemiBold"
-                           VerticalAlignment="Center"/>
 
-                <Button Grid.Column="1"
+                <StackPanel Grid.Column="0"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <TextBlock Text="Live SQL Editor"
+                               Foreground="#D4AF37"
+                               FontSize="14"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <Border Grid.Column="2"
+                        Background="#252525"
+                        CornerRadius="4"
+                        Padding="8,4"
+                        VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox x:Name="ManualModeToggle"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,6,0"
+                                  Checked="ManualMode_Changed"
+                                  Unchecked="ManualMode_Changed"/>
+                        <TextBlock Text="Manual SQL Mode"
+                                   Foreground="#F0C040"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <Button Grid.Column="4"
                         Content="Scaffold Base Query"
                         Background="#1A1A1A"
                         Foreground="#CCC"
@@ -158,7 +184,7 @@
                         Cursor="Hand"
                         Click="ScaffoldQuery_Click"/>
 
-                <Button Grid.Column="3"
+                <Button Grid.Column="6"
                         Content="Sync Output to Layout"
                         Background="#007ACC"
                         Foreground="White"
@@ -235,7 +261,7 @@
                          BorderBrush="#444"
                          BorderThickness="1"
                          Padding="14"
-                         IsReadOnly="True"
+                         IsReadOnly="False"
                          AcceptsReturn="True"
                          AcceptsTab="True"
                          TextWrapping="NoWrap"

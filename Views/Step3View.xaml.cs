@@ -13,6 +13,8 @@ namespace AutoReportWizard.Views
         private static readonly AggregateFunction[] AggregateOptions =
             (AggregateFunction[])Enum.GetValues(typeof(AggregateFunction));
 
+        private bool _isManualMode;
+
         public Step3View()
         {
             InitializeComponent();
@@ -44,6 +46,7 @@ namespace AutoReportWizard.Views
 
         private void PreviewText_Changed(object sender, TextChangedEventArgs e)
         {
+            if (_isManualMode) return;
             if (DataContext is not WizardViewModel vm) return;
             BuildPreviewSql(vm);
         }
@@ -51,7 +54,25 @@ namespace AutoReportWizard.Views
         private void ScaffoldQuery_Click(object sender, RoutedEventArgs e)
         {
             if (DataContext is not WizardViewModel vm) return;
+
+            if (_isManualMode)
+            {
+                var result = MessageBox.Show(
+                    "This will overwrite your manual changes. Do you want to proceed?",
+                    "Reset to Base Query",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (result != MessageBoxResult.Yes)
+                    return;
+            }
+
             BuildPreviewSql(vm);
+        }
+
+        private void ManualMode_Changed(object sender, RoutedEventArgs e)
+        {
+            _isManualMode = ManualModeToggle.IsChecked == true;
         }
 
         private static void BuildPreviewSql(WizardViewModel vm)
@@ -76,9 +97,18 @@ namespace AutoReportWizard.Views
             sb.AppendLine("    SELECT");
 
             var selectItems = vm.Fields
-                .OrderBy(f => f.DisplayOrder)
-                .Select(f => "        " + f.GetSelectExpression())
-                .ToList();
+            .OrderBy(f => f.DisplayOrder)
+            .Select(f =>
+            {
+                string expr = f.GetSelectExpression();
+                    // Force an alias if one is missing so SQL Server doesn't crash on aggregations
+                if (!expr.Contains(" AS ", StringComparison.OrdinalIgnoreCase))
+                {
+                        return $"        {expr} AS [{f.Name}]";
+                }
+                return $"        {expr}";
+            })
+            .ToList();
 
             if (!selectItems.Any())
             {
@@ -94,14 +124,14 @@ namespace AutoReportWizard.Views
             }
 
             string schemaClause = string.IsNullOrEmpty(vm.SchemaName) ? "dbo" : vm.SchemaName;
-            sb.AppendLine($"    FROM [{vm.DatabaseName}].[{schemaClause}].[{vm.TableOrViewName}]");
+            sb.AppendLine($"    FROM [{vm.DatabaseName}].[{schemaClause}].[{vm.TableOrViewName}] AS [{vm.TableOrViewName}]");
 
             // Inject the configured table joins from Step 2
             if (vm.ConfiguredJoins.Any())
             {
                 foreach (var join in vm.ConfiguredJoins)
                 {
-                    sb.AppendLine($"    INNER JOIN [{vm.DatabaseName}].[{schemaClause}].[{join.JoinedTable}] ON [{join.PrimaryTable}].[{join.PrimaryColumn}] = [{join.JoinedTable}].[{join.JoinedColumn}]");
+                    sb.AppendLine($"    INNER JOIN [{vm.DatabaseName}].[{schemaClause}].[{join.JoinedTable}] AS [{join.JoinedTable}] ON [{join.PrimaryTable}].[{join.PrimaryColumn}] = [{join.JoinedTable}].[{join.JoinedColumn}]");
                 }
             }
 
@@ -143,7 +173,6 @@ namespace AutoReportWizard.Views
                 var selectItems = vm.Fields.OrderBy(f => f.DisplayOrder).Select(f =>
                 {
                     string expr = f.GetSelectExpression();
-                    // If the expression doesn't already have an alias, force one so SQL Server doesn't crash
                     if (!expr.Contains(" AS ", StringComparison.OrdinalIgnoreCase))
                     {
                         return $"    {expr} AS [{f.Name}]";
@@ -156,12 +185,12 @@ namespace AutoReportWizard.Views
                     pureQuery.AppendLine(string.Join(",\n", selectItems));
 
                 string schemaClause = string.IsNullOrEmpty(vm.SchemaName) ? "dbo" : vm.SchemaName;
-                pureQuery.AppendLine($"FROM [{vm.DatabaseName}].[{schemaClause}].[{vm.TableOrViewName}]");
+                pureQuery.AppendLine($"FROM [{vm.DatabaseName}].[{schemaClause}].[{vm.TableOrViewName}] AS [{vm.TableOrViewName}]");
 
                 if (vm.ConfiguredJoins.Any())
                 {
                     foreach (var join in vm.ConfiguredJoins)
-                        pureQuery.AppendLine($"INNER JOIN [{vm.DatabaseName}].[{schemaClause}].[{join.JoinedTable}] ON [{join.PrimaryTable}].[{join.PrimaryColumn}] = [{join.JoinedTable}].[{join.JoinedColumn}]");
+                        pureQuery.AppendLine($"INNER JOIN [{vm.DatabaseName}].[{schemaClause}].[{join.JoinedTable}] AS [{join.JoinedTable}] ON [{join.PrimaryTable}].[{join.PrimaryColumn}] = [{join.JoinedTable}].[{join.JoinedColumn}]");
                 }
 
                 if (!string.IsNullOrWhiteSpace(vm.CustomWhereClause))

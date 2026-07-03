@@ -158,7 +158,10 @@ namespace AutoReportWizard.ViewModels
             }
         }
 
-        // ── Cascading Dropdown Collections ────────────────────────────────────
+        // ── Cascading Dropdown Collections & Caching ──────────────────────────
+        private readonly Dictionary<string, List<string>> _schemaCache = new();
+        private readonly Dictionary<string, List<string>> _tableCache = new();
+
         public ObservableCollection<string> AvailableDatabases { get; } = new();
         public ObservableCollection<string> AvailableSchemas { get; } = new();
         public ObservableCollection<string> AvailableTables { get; } = new();
@@ -234,6 +237,8 @@ namespace AutoReportWizard.ViewModels
             AvailableDatabases.Clear();
             AvailableSchemas.Clear();
             AvailableTables.Clear();
+            _schemaCache.Clear();
+            _tableCache.Clear();
             IsBusy = true;
 
             try
@@ -273,10 +278,20 @@ namespace AutoReportWizard.ViewModels
 
             try
             {
+                if (_schemaCache.TryGetValue(SelectedDatabase, out var cachedSchemas))
+                {
+                    foreach (var schema in cachedSchemas)
+                        AvailableSchemas.Add(schema);
+                    return;
+                }
+
                 IsBusy = true;
                 var schemas = await _databaseService.GetSchemasAsync(Report);
+                
+                var fetchedSchemas = schemas.ToList();
+                _schemaCache[SelectedDatabase] = fetchedSchemas;
 
-                foreach (var schema in schemas)
+                foreach (var schema in fetchedSchemas)
                     AvailableSchemas.Add(schema);
             }
             catch (Exception ex)
@@ -298,11 +313,22 @@ namespace AutoReportWizard.ViewModels
             if (string.IsNullOrWhiteSpace(SelectedSchema))
                 return;
 
+            string cacheKey = $"{SelectedDatabase}.{SelectedSchema}";
+
             try
             {
+                if (_tableCache.TryGetValue(cacheKey, out var cachedTables))
+                {
+                    foreach (var t in cachedTables) AvailableTables.Add(t);
+                    return;
+                }
+
                 IsBusy = true;
                 var tables = await _databaseService.GetTablesAndViewsAsync(Report, SelectedSchema);
-                foreach (var t in tables) AvailableTables.Add(t);
+                var fetchedTables = tables.ToList();
+                _tableCache[cacheKey] = fetchedTables;
+                
+                foreach (var t in fetchedTables) AvailableTables.Add(t);
             }
             catch (Exception ex)
             {

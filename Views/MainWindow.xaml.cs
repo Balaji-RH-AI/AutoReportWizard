@@ -19,7 +19,8 @@ namespace AutoReportWizard.Views
             "Choose grouping options and configure field-level transformations.",
             "Set the report title, subtitle, and configure header/footer options.",
             "Reorder columns and configure spatial header/footer zones.",
-            "Review your configuration and generate the final output files."
+            "Enter stored procedure parameters and run a live data preview.",
+            "Select your output folder and generate the final T-SQL and RDLC files."
         };
 
         public MainWindow()
@@ -55,7 +56,7 @@ namespace AutoReportWizard.Views
         // ── Navigation ────────────────────────────────────────────────────────
         private void NextButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentStep < 6) { _currentStep++; UpdateUI(); }
+            if (_currentStep < 7) { _currentStep++; UpdateUI(); }
         }
 
         private void BackButton_Click(object sender, RoutedEventArgs e)
@@ -78,17 +79,19 @@ namespace AutoReportWizard.Views
                 case 3:
                 case 4: this.Width = 1150; this.Height = 760; break;
                 case 5:
-                case 6: this.Width = 1300; this.Height = 850; break;
+                case 6:
+                case 7: this.Width = 1300; this.Height = 850; break;
             }
 
             StepHintText.Text = StepHints[_currentStep];
             BackButton.IsEnabled = _currentStep > 1;
-            NextButton.Content = _currentStep == 6 ? "Generate Output ⚡" : "Next →";
-            NextButton.IsEnabled = _currentStep < 6;
+            NextButton.Content = _currentStep == 7 ? "Generate Output ⚡" : "Next →";
+            NextButton.IsEnabled = _currentStep < 7;
 
             UpdateSidebarStep(1, Icon1, Text1); UpdateSidebarStep(2, Icon2, Text2);
             UpdateSidebarStep(3, Icon3, Text3); UpdateSidebarStep(4, Icon4, Text4);
             UpdateSidebarStep(5, Icon5, Text5); UpdateSidebarStep(6, Icon6, Text6);
+            UpdateSidebarStep(7, Icon7, Text7);
 
             UserControl? view = _currentStep switch
             {
@@ -98,6 +101,7 @@ namespace AutoReportWizard.Views
                 4 => new Step4View { DataContext = AppState },
                 5 => new Step5View { DataContext = AppState },
                 6 => new Step6View { DataContext = AppState },
+                7 => new Step7View { DataContext = AppState },
                 _ => null
             };
 

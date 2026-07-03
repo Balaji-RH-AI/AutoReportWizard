@@ -3,367 +3,393 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="Transparent">
 
-        <UserControl.Resources>
-                <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </UserControl.Resources>
 
-                <Style x:Key="TransferBtn"
-                       TargetType="Button">
-                        <Setter Property="Background"
-                                Value="#2A2A2A"/>
-                        <Setter Property="Foreground"
-                                Value="#CCC"/>
-                        <Setter Property="FontWeight"
-                                Value="Bold"/>
-                        <Setter Property="Margin"
-                                Value="0,4"/>
-                        <Setter Property="Padding"
-                                Value="0,6"/>
-                        <Setter Property="BorderBrush"
-                                Value="#444"/>
-                        <Setter Property="BorderThickness"
-                                Value="1"/>
-                        <Setter Property="Cursor"
-                                Value="Hand"/>
-                </Style>
-        </UserControl.Resources>
-
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  Padding="0,0,15,0">
         <Grid>
-                <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0"
-                           Text="Dataset Definition"
-                           Foreground="White"
-                           FontSize="26"
-                           FontWeight="Bold"/>
-                <TextBlock Grid.Row="1"
-                           Foreground="Gray"
-                           FontSize="13"
-                           Margin="0,5,0,20"
-                           Text="Which fields do you want on your report? Select a database and table, then choose your fields."/>
+            <TextBlock Grid.Row="0"
+                       Text="Dataset Definition"
+                       Foreground="White"
+                       FontSize="26"
+                       FontWeight="Bold"/>
 
-                <Grid Grid.Row="2"
-                      Margin="0,0,0,20">
+            <TextBlock Grid.Row="1"
+                       Foreground="Gray"
+                       FontSize="13"
+                       Margin="0,5,0,20"
+                       Text="Which fields do you want on your report? Select a database and table, then choose your fields."/>
+
+            <Grid Grid.Row="2"
+                    Margin="0,0,0,20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="15"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="15"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <Grid>
                         <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="15"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="15"/>
-                                <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                Text="Database"
+                                Foreground="#D4AF37"
+                                FontWeight="SemiBold"
+                                Margin="0,0,0,5"/>
+                        <TextBlock Grid.Column="1"
+                                Text="↻ Load"
+                                Foreground="#007ACC"
+                                Cursor="Hand"
+                                   MouseDown="RefreshDatabases_MouseDown"
+                                FontSize="11"
+                                VerticalAlignment="Bottom"
+                                Margin="0,0,0,5"/>
+                    </Grid>
 
-                        <StackPanel Grid.Column="0">
-                                <Grid>
+                    <ToggleButton x:Name="DbToggle"
+                            Style="{StaticResource DropdownToggle}">
+                        <TextBlock Text="{Binding SelectedDatabase, TargetNullValue='Select Database...'}"/>
+                    </ToggleButton>
+                    <Popup IsOpen="{Binding IsChecked, ElementName=DbToggle}"
+                            StaysOpen="False"
+                            PlacementTarget="{Binding ElementName=DbToggle}">
+                        <Border Background="#1A1A1A"
+                                BorderBrush="#444"
+                                BorderThickness="1"
+                                Width="{Binding ActualWidth, ElementName=DbToggle}">
+                            <StackPanel>
+                                <TextBox Background="#0D0D0D"
+                                        Foreground="White"
+                                        BorderBrush="#333"
+                                        BorderThickness="1"
+                                         Margin="5"
+                                        Padding="5"
+                                        Tag="{Binding ElementName=DbList}"
+                                        TextChanged="SearchBox_TextChanged"/>
+                                <ListBox x:Name="DbList"
+                                        ItemsSource="{Binding AvailableDatabases}"
+                                        SelectedItem="{Binding SelectedDatabase, Mode=TwoWay}"
+                                         MaxHeight="200"
+                                        Background="Transparent"
+                                        Foreground="White"
+                                        BorderThickness="0"
+                                         Tag="{Binding ElementName=DbToggle}"
+                                        SelectionChanged="DropdownList_SelectionChanged"/>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Schema"
+                            Foreground="#D4AF37"
+                            FontWeight="SemiBold"
+                            Margin="0,0,0,5"/>
+
+                    <ToggleButton x:Name="SchemaToggle"
+                            Style="{StaticResource DropdownToggle}">
+                        <TextBlock Text="{Binding SelectedSchema, TargetNullValue='Select Schema...'}"/>
+                    </ToggleButton>
+                    <Popup IsOpen="{Binding IsChecked, ElementName=SchemaToggle}"
+                            StaysOpen="False"
+                            PlacementTarget="{Binding ElementName=SchemaToggle}">
+                        <Border Background="#1A1A1A"
+                                BorderBrush="#444"
+                                BorderThickness="1"
+                                Width="{Binding ActualWidth, ElementName=SchemaToggle}">
+                            <StackPanel>
+                                <TextBox Background="#0D0D0D"
+                                        Foreground="White"
+                                        BorderBrush="#333"
+                                        BorderThickness="1"
+                                         Margin="5"
+                                        Padding="5"
+                                        Tag="{Binding ElementName=SchemaList}"
+                                        TextChanged="SearchBox_TextChanged"/>
+                                <ListBox x:Name="SchemaList"
+                                        ItemsSource="{Binding AvailableSchemas}"
+                                        SelectedItem="{Binding SelectedSchema, Mode=TwoWay}"
+                                         MaxHeight="200"
+                                        Background="Transparent"
+                                        Foreground="White"
+                                        BorderThickness="0"
+                                         Tag="{Binding ElementName=SchemaToggle}"
+                                        SelectionChanged="DropdownList_SelectionChanged"/>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+                </StackPanel>
+
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="Tables / Queries"
+                            Foreground="#D4AF37"
+                            FontWeight="SemiBold"
+                            Margin="0,0,0,5"/>
+
+                    <ToggleButton x:Name="TableToggle"
+                            Style="{StaticResource DropdownToggle}">
+                        <TextBlock Text="{Binding SelectedTable, TargetNullValue='Select Table...'}"/>
+                    </ToggleButton>
+                    <Popup IsOpen="{Binding IsChecked, ElementName=TableToggle}"
+                            StaysOpen="False"
+                            PlacementTarget="{Binding ElementName=TableToggle}">
+                        <Border Background="#1A1A1A"
+                                BorderBrush="#444"
+                                BorderThickness="1"
+                                Width="{Binding ActualWidth, ElementName=TableToggle}">
+                            <StackPanel>
+                                <TextBox Background="#0D0D0D"
+                                        Foreground="White"
+                                        BorderBrush="#333"
+                                        BorderThickness="1"
+                                         Margin="5"
+                                        Padding="5"
+                                        Tag="{Binding ElementName=TableList}"
+                                        TextChanged="SearchBox_TextChanged"/>
+                                <ListBox x:Name="TableList"
+                                        ItemsSource="{Binding AvailableTables}"
+                                        SelectedItem="{Binding SelectedTable, Mode=TwoWay}"
+                                         MaxHeight="200"
+                                        Background="Transparent"
+                                        Foreground="White"
+                                        BorderThickness="0"
+                                         Tag="{Binding ElementName=TableToggle}"
+                                        SelectionChanged="DropdownList_SelectionChanged"/>
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+                </StackPanel>
+            </Grid>
+
+            <Border Grid.Row="3"
+                    Margin="0,0,0,20"
+                    Background="#111111"
+                    BorderBrush="#2A2A2A"
+                    BorderThickness="1"
+                    Padding="16">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,10">
+                        <TextBlock Text="RELATIONAL TABLE JOINS"
+                                Foreground="#D4AF37"
+                                FontWeight="Bold"
+                                FontSize="15"
+                                VerticalAlignment="Center"/>
+                        <Button Content="+ Add New Table Join"
+                                HorizontalAlignment="Right"
+                                Background="Transparent"
+                                Foreground="#D4AF37"
+                                BorderBrush="#D4AF37"
+                                BorderThickness="1"
+                                Padding="10,6"
+                                Cursor="Hand"
+                                Click="AddJoin_Click"/>
+                    </DockPanel>
+
+                    <TextBlock Text="Connect additional tables to the selected base table using a primary key and matching foreign key."
+                               Foreground="#888"
+                            FontSize="12"
+                            Margin="0,0,0,10"/>
+
+                    <ItemsControl ItemsSource="{Binding ConfiguredJoins}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#0D0D0D"
+                                        BorderBrush="#2A2A2A"
+                                        BorderThickness="1"
+                                        Margin="0,0,0,10"
+                                        Padding="10">
+                                    <Grid>
                                         <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="1.2*"/>
+                                            <ColumnDefinition Width="1*"/>
+                                            <ColumnDefinition Width="1*"/>
+                                            <ColumnDefinition Width="1*"/>
+                                            <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0"
-                                                   Text="Database"
-                                                   Foreground="#D4AF37"
-                                                   FontWeight="SemiBold"
-                                                   Margin="0,0,0,5"/>
-                                        <TextBlock Grid.Column="1"
-                                                   Text="↻ Load"
-                                                   Foreground="#007ACC"
-                                                   Cursor="Hand"
-                                                   MouseDown="RefreshDatabases_MouseDown"
-                                                   FontSize="11"
-                                                   VerticalAlignment="Bottom"
-                                                   Margin="0,0,0,5"/>
-                                </Grid>
-                                <ComboBox ItemsSource="{Binding AvailableDatabases}"
-                                          SelectedItem="{Binding SelectedDatabase, Mode=TwoWay}"
-                                          IsEditable="True"
-                                          IsTextSearchEnabled="True"
-                                          MaxDropDownHeight="300"
-                                          Background="#1A1A1A"
-                                          Foreground="White"
-                                          BorderBrush="#444"
-                                          FontSize="13"
-                                          Height="30"
-                                          MinWidth="250"
-                                          HorizontalAlignment="Stretch">
-                                        <ComboBox.Resources>
-                                                <Style TargetType="{x:Type TextBox}">
-                                                        <Setter Property="Foreground"
-                                                                Value="White"/>
-                                                </Style>
-                                        </ComboBox.Resources>
-                                </ComboBox>
-                        </StackPanel>
 
-                        <StackPanel Grid.Column="2">
-                                <TextBlock Text="Schema"
-                                           Foreground="#D4AF37"
-                                           FontWeight="SemiBold"
-                                           Margin="0,0,0,5"/>
-                                <ComboBox ItemsSource="{Binding AvailableSchemas}"
-                                          SelectedItem="{Binding SelectedSchema,Mode=TwoWay}"
-                                          IsEditable="True"
-                                          IsTextSearchEnabled="True"
-                                          MaxDropDownHeight="300"
-                                          Background="#1A1A1A"
-                                          Foreground="White"
-                                          BorderBrush="#444"
-                                          FontSize="13"
-                                          Height="30"
-                                          MinWidth="250"
-                                          HorizontalAlignment="Stretch">
-                                        <ComboBox.Resources>
-                                                <Style TargetType="{x:Type TextBox}">
-                                                        <Setter Property="Foreground"
-                                                                Value="White"/>
-                                                </Style>
-                                        </ComboBox.Resources>
-                                </ComboBox>
-                        </StackPanel>
+                                        <StackPanel Grid.Column="0"
+                                                Margin="0,0,10,0">
+                                            <TextBlock Text="Primary Table"
+                                                    Foreground="#D4AF37"
+                                                    FontSize="11"
+                                                    Margin="0,0,0,4"/>
+                                            <TextBlock Text="{Binding PrimaryTable}"
+                                                    Foreground="White"
+                                                    FontSize="13"/>
+                                        </StackPanel>
 
-                        <StackPanel Grid.Column="4">
-                                <TextBlock Text="Tables / Queries"
-                                           Foreground="#D4AF37"
-                                           FontWeight="SemiBold"
-                                           Margin="0,0,0,5"/>
-                                <ComboBox ItemsSource="{Binding AvailableTables}"
-                                          SelectedItem="{Binding SelectedTable,Mode=TwoWay}"
-                                          IsEditable="True"
-                                          IsTextSearchEnabled="True"
-                                          MaxDropDownHeight="300"
-                                          Background="#1A1A1A"
-                                          Foreground="White"
-                                          BorderBrush="#444"
-                                          FontSize="13"
-                                          Height="30"
-                                          MinWidth="250"
-                                          HorizontalAlignment="Stretch">
-                                        <ComboBox.Resources>
-                                                <Style TargetType="{x:Type TextBox}">
-                                                        <Setter Property="Foreground"
-                                                                Value="White"/>
-                                                </Style>
-                                        </ComboBox.Resources>
-                                </ComboBox>
-                        </StackPanel>
-                </Grid>
+                                        <StackPanel Grid.Column="1"
+                                                Margin="0,0,10,0">
+                                            <TextBlock Text="Primary Key"
+                                                    Foreground="#D4AF37"
+                                                    FontSize="11"
+                                                    Margin="0,0,0,4"/>
+                                            <ComboBox ItemsSource="{Binding DataContext.AvailableColumns, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                      SelectedItem="{Binding PrimaryColumn, UpdateSourceTrigger=PropertyChanged}"
+                                                      Background="#1A1A1A"
+                                                    Foreground="White"
+                                                    BorderBrush="#444"
+                                                    BorderThickness="1"
+                                                    Height="28"/>
+                                        </StackPanel>
 
-                <Border Grid.Row="3"
-                        Margin="0,0,0,20"
-                        Background="#111111"
-                        BorderBrush="#2A2A2A"
-                        BorderThickness="1"
-                        CornerRadius="0"
-                        Padding="16">
-                        <StackPanel>
-                                <DockPanel Margin="0,0,0,10">
-                                        <TextBlock Text="RELATIONAL TABLE JOINS"
-                                                   Foreground="#D4AF37"
-                                                   FontWeight="Bold"
-                                                   FontSize="15"
-                                                   VerticalAlignment="Center"/>
-                                        <Button Content="+ Add New Table Join"
-                                                HorizontalAlignment="Right"
+                                        <StackPanel Grid.Column="2"
+                                                Margin="0,0,10,0">
+                                            <TextBlock Text="Joined Table"
+                                                    Foreground="#D4AF37"
+                                                    FontSize="11"
+                                                    Margin="0,0,0,4"/>
+                                            <ComboBox ItemsSource="{Binding DataContext.AvailableTables, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                      SelectedItem="{Binding JoinedTable, UpdateSourceTrigger=PropertyChanged}"
+                                                      Background="#1A1A1A"
+                                                    Foreground="White"
+                                                    BorderBrush="#444"
+                                                    BorderThickness="1"
+                                                    Height="28"/>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="3"
+                                                Margin="0,0,10,0">
+                                            <TextBlock Text="Foreign Key"
+                                                    Foreground="#D4AF37"
+                                                    FontSize="11"
+                                                    Margin="0,0,0,4"/>
+                                            <TextBox Text="{Binding JoinedColumn, UpdateSourceTrigger=PropertyChanged}"
+                                                     Background="#1A1A1A"
+                                                    Foreground="White"
+                                                    BorderBrush="#444"
+                                                    BorderThickness="1"
+                                                    Height="28"
+                                                    Padding="6,4"/>
+                                        </StackPanel>
+
+                                        <Button Grid.Column="4"
+                                                Content="Delete"
+                                                VerticalAlignment="Bottom"
                                                 Background="Transparent"
-                                                Foreground="#D4AF37"
-                                                BorderBrush="#D4AF37"
+                                                Foreground="#FF6B6B"
+                                                BorderBrush="#FF6B6B"
                                                 BorderThickness="1"
-                                                Padding="10,6"
+                                                Padding="8,4"
                                                 Cursor="Hand"
-                                                Click="AddJoin_Click"/>
-                                </DockPanel>
-                                <TextBlock Text="Connect additional tables to the selected base table using a primary key and matching foreign key."
-                                           Foreground="#888"
-                                           FontSize="12"
-                                           Margin="0,0,0,10"/>
-
-                                <ItemsControl ItemsSource="{Binding ConfiguredJoins}">
-                                        <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                        <Border Background="#0D0D0D"
-                                                                BorderBrush="#2A2A2A"
-                                                                BorderThickness="1"
-                                                                Margin="0,0,0,10"
-                                                                Padding="10"
-                                                                CornerRadius="0">
-                                                                <Grid>
-                                                                        <Grid.ColumnDefinitions>
-                                                                                <ColumnDefinition Width="1.2*"/>
-                                                                                <ColumnDefinition Width="1*"/>
-                                                                                <ColumnDefinition Width="1*"/>
-                                                                                <ColumnDefinition Width="1*"/>
-                                                                                <ColumnDefinition Width="Auto"/>
-                                                                        </Grid.ColumnDefinitions>
-
-                                                                        <StackPanel Grid.Column="0"
-                                                                                    Margin="0,0,10,0">
-                                                                                <TextBlock Text="Primary Table"
-                                                                                           Foreground="#D4AF37"
-                                                                                           FontSize="11"
-                                                                                           Margin="0,0,0,4"/>
-                                                                                <TextBlock Text="{Binding PrimaryTable}"
-                                                                                           Foreground="White"
-                                                                                           FontSize="13"/>
-                                                                        </StackPanel>
-
-                                                                        <StackPanel Grid.Column="1"
-                                                                                    Margin="0,0,10,0">
-                                                                                <TextBlock Text="Primary Key"
-                                                                                           Foreground="#D4AF37"
-                                                                                           FontSize="11"
-                                                                                           Margin="0,0,0,4"/>
-                                                                                <ComboBox ItemsSource="{Binding DataContext.AvailableColumns, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                                                          SelectedItem="{Binding PrimaryColumn, UpdateSourceTrigger=PropertyChanged}"
-                                                                                          Background="#1A1A1A"
-                                                                                          Foreground="White"
-                                                                                          BorderBrush="#444"
-                                                                                          BorderThickness="1"
-                                                                                          Height="28"/>
-                                                                        </StackPanel>
-
-                                                                        <StackPanel Grid.Column="2"
-                                                                                    Margin="0,0,10,0">
-                                                                                <TextBlock Text="Joined Table"
-                                                                                           Foreground="#D4AF37"
-                                                                                           FontSize="11"
-                                                                                           Margin="0,0,0,4"/>
-                                                                                <ComboBox ItemsSource="{Binding DataContext.AvailableTables, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                                                          SelectedItem="{Binding JoinedTable, UpdateSourceTrigger=PropertyChanged}"
-                                                                                          Background="#1A1A1A"
-                                                                                          Foreground="White"
-                                                                                          BorderBrush="#444"
-                                                                                          BorderThickness="1"
-                                                                                          Height="28"/>
-                                                                        </StackPanel>
-
-                                                                        <StackPanel Grid.Column="3"
-                                                                                    Margin="0,0,10,0">
-                                                                                <TextBlock Text="Foreign Key"
-                                                                                           Foreground="#D4AF37"
-                                                                                           FontSize="11"
-                                                                                           Margin="0,0,0,4"/>
-                                                                                <TextBox Text="{Binding JoinedColumn, UpdateSourceTrigger=PropertyChanged}"
-                                                                                         Background="#1A1A1A"
-                                                                                         Foreground="White"
-                                                                                         BorderBrush="#444"
-                                                                                         BorderThickness="1"
-                                                                                         Height="28"
-                                                                                         Padding="6,4"/>
-                                                                        </StackPanel>
-
-                                                                        <Button Grid.Column="4"
-                                                                                Content="Delete"
-                                                                                VerticalAlignment="Bottom"
-                                                                                Background="Transparent"
-                                                                                Foreground="#FF6B6B"
-                                                                                BorderBrush="#FF6B6B"
-                                                                                BorderThickness="1"
-                                                                                Padding="8,4"
-                                                                                Cursor="Hand"
-                                                                                Tag="{Binding}"
-                                                                                Click="DeleteJoin_Click"/>
-                                                                </Grid>
-                                                        </Border>
-                                                </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                        </StackPanel>
-                </Border>
-
-                <Grid Grid.Row="4">
-                        <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="60"/>
-                                <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <StackPanel Grid.Column="0">
-                                <TextBlock Text="Available Fields:"
-                                           Foreground="#CCC"
-                                           Margin="0,0,0,5"/>
-                                <Border Background="#1A1A1A"
-                                        BorderBrush="#444"
-                                        BorderThickness="1"
-                                        CornerRadius="4">
-                                        <ListBox x:Name="AvailableList"
-                                                 ItemsSource="{Binding AvailableFields}"
-                                                 Background="Transparent"
-                                                 BorderThickness="0"
-                                                 Foreground="White"
-                                                 Height="300"
-                                                 SelectionMode="Extended">
-                                                <ListBox.ItemTemplate>
-                                                        <DataTemplate>
-                                                                <StackPanel Orientation="Horizontal"
-                                                                            Margin="4,2">
-                                                                        <TextBlock Text="{Binding SourceTable, StringFormat='[{0}].'}"
-                                                                                   Foreground="#777"
-                                                                                   FontSize="11"
-                                                                                   VerticalAlignment="Center"/>
-                                                                        <TextBlock Text="{Binding Name}"
-                                                                                   Foreground="White"
-                                                                                   FontSize="13"
-                                                                                   VerticalAlignment="Center"/>
-                                                                </StackPanel>
-                                                        </DataTemplate>
-                                                </ListBox.ItemTemplate>
-                                        </ListBox>
+                                                Tag="{Binding}"
+                                                Click="DeleteJoin_Click"/>
+                                    </Grid>
                                 </Border>
-                        </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
 
-                        <StackPanel Grid.Column="1"
-                                    VerticalAlignment="Center"
-                                    Margin="10,0">
-                                <Button Content="&gt;"
-                                        Style="{StaticResource TransferBtn}"
-                                        Click="MoveRight_Click"/>
-                                <Button Content="&gt;&gt;"
-                                        Style="{StaticResource TransferBtn}"
-                                        Click="MoveAllRight_Click"/>
-                                <Button Content="&lt;"
-                                        Style="{StaticResource TransferBtn}"
-                                        Click="MoveLeft_Click"/>
-                                <Button Content="&lt;&lt;"
-                                        Style="{StaticResource TransferBtn}"
-                                        Click="MoveAllLeft_Click"/>
-                        </StackPanel>
+            <Grid Grid.Row="4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="60"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Column="2">
-                                <TextBlock Text="Selected Fields:"
-                                           Foreground="#CCC"
-                                           Margin="0,0,0,5"/>
-                                <Border Background="#1A1A1A"
-                                        BorderBrush="#444"
-                                        BorderThickness="1"
-                                        CornerRadius="4">
-                                        <ListBox x:Name="SelectedList"
-                                                 ItemsSource="{Binding Fields}"
-                                                 Background="Transparent"
-                                                 BorderThickness="0"
-                                                 Foreground="White"
-                                                 Height="300"
-                                                 SelectionMode="Extended">
-                                                <ListBox.ItemTemplate>
-                                                        <DataTemplate>
-                                                                <StackPanel Orientation="Horizontal"
-                                                                            Margin="4,2">
-                                                                        <TextBlock Text="{Binding SourceTable, StringFormat='[{0}].'}"
-                                                                                   Foreground="#777"
-                                                                                   FontSize="11"
-                                                                                   VerticalAlignment="Center"/>
-                                                                        <TextBlock Text="{Binding Name}"
-                                                                                   Foreground="White"
-                                                                                   FontSize="13"
-                                                                                   VerticalAlignment="Center"/>
-                                                                </StackPanel>
-                                                        </DataTemplate>
-                                                </ListBox.ItemTemplate>
-                                        </ListBox>
-                                </Border>
-                        </StackPanel>
-                </Grid>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Available Fields:"
+                            Foreground="#CCC"
+                            Margin="0,0,0,5"/>
+                    <Border Background="#1A1A1A"
+                            BorderBrush="#444"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <ListBox x:Name="AvailableList"
+                                ItemsSource="{Binding AvailableFields}"
+                                Background="Transparent"
+                                 BorderThickness="0"
+                                Foreground="White"
+                                Height="300"
+                                SelectionMode="Extended">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal"
+                                            Margin="4,2">
+                                        <TextBlock Text="{Binding SourceTable, StringFormat='[{0}].'}"
+                                                Foreground="#777"
+                                                FontSize="11"
+                                                VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Name}"
+                                                Foreground="White"
+                                                FontSize="13"
+                                                VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1"
+                        VerticalAlignment="Center"
+                        Margin="10,0">
+                    <Button Content="&gt;"
+                            Style="{StaticResource TransferBtn}"
+                            Click="MoveRight_Click"/>
+                    <Button Content="&gt;&gt;"
+                            Style="{StaticResource TransferBtn}"
+                            Click="MoveAllRight_Click"/>
+                    <Button Content="&lt;"
+                            Style="{StaticResource TransferBtn}"
+                            Click="MoveLeft_Click"/>
+                    <Button Content="&lt;&lt;"
+                            Style="{StaticResource TransferBtn}"
+                            Click="MoveAllLeft_Click"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Selected Fields:"
+                            Foreground="#CCC"
+                            Margin="0,0,0,5"/>
+                    <Border Background="#1A1A1A"
+                            BorderBrush="#444"
+                            BorderThickness="1"
+                            CornerRadius="4">
+                        <ListBox x:Name="SelectedList"
+                                ItemsSource="{Binding Fields}"
+                                Background="Transparent"
+                                 BorderThickness="0"
+                                Foreground="White"
+                                Height="300"
+                                SelectionMode="Extended">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal"
+                                            Margin="4,2">
+                                        <TextBlock Text="{Binding SourceTable, StringFormat='[{0}].'}"
+                                                Foreground="#777"
+                                                FontSize="11"
+                                                VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Name}"
+                                                Foreground="White"
+                                                FontSize="13"
+                                                VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </StackPanel>
+            </Grid>
         </Grid>
+    </ScrollViewer>
 </UserControl>

@@ -237,7 +237,26 @@
                                    VerticalAlignment="Center"/>
                         <TextBlock x:Name="Text6"
                                    Grid.Column="1"
-                                   Text="Generation Terminal"
+                                   Text="Live Preview"
+                                   Style="{StaticResource SidebarText}"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"/>
+                    </Grid>
+
+                    <Grid Margin="0,15">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="65"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock x:Name="Icon7"
+                                   Grid.Column="0"
+                                   Text="○"
+                                   FontSize="18"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock x:Name="Text7"
+                                   Grid.Column="1"
+                                   Text="Output &amp; Generate"
                                    Style="{StaticResource SidebarText}"
                                    FontSize="14"
                                    FontWeight="SemiBold"/>

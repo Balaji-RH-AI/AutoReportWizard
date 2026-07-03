@@ -48,12 +48,12 @@ namespace AutoReportWizard.Services
 
                 if (!string.IsNullOrWhiteSpace(def.PreQueryLogic))
                 {
-                    sb.Append(def.PreQueryLogic);
-                    if (!def.PreQueryLogic.EndsWith(Environment.NewLine))
+                    string pql = def.PreQueryLogic.Trim();
+                    if (pql.StartsWith("WITH ", StringComparison.OrdinalIgnoreCase))
                     {
-                        sb.AppendLine();
+                        pql = ";" + pql;
                     }
-
+                    sb.AppendLine(pql);
                     sb.AppendLine();
                 }
 
@@ -71,10 +71,10 @@ namespace AutoReportWizard.Services
                     }
                 }
 
-                sb.AppendLine($"FROM {QuoteName(def.DatabaseName)}.{QuoteName(def.SchemaName)}.{QuoteName(def.TableOrViewName)}");
+                sb.AppendLine($"FROM {QuoteName(def.DatabaseName)}.{QuoteName(def.SchemaName)}.{QuoteName(def.TableOrViewName)} AS {QuoteName(def.TableOrViewName)}");
                 foreach (var join in def.Joins.Where(j => j is not null))
                 {
-                    sb.AppendLine($"    {join.GetJoinExpression()}");
+                    sb.AppendLine($"    {join.GetJoinExpression(def.DatabaseName, def.SchemaName)}");
                 }
 
                 if (!string.IsNullOrWhiteSpace(def.CustomWhereClause))

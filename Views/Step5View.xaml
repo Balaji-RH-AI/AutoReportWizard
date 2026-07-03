@@ -4,23 +4,6 @@
              Background="#2D2D30">
         <UserControl.Resources>
                 <BooleanToVisibilityConverter x:Key="BoolToVis"/>
-                <Style x:Key="DesignerBtn"
-                       TargetType="Button">
-                        <Setter Property="Background"
-                                Value="#1A1A1A"/>
-                        <Setter Property="Foreground"
-                                Value="White"/>
-                        <Setter Property="Padding"
-                                Value="10,6"/>
-                        <Setter Property="Margin"
-                                Value="0,0,8,0"/>
-                        <Setter Property="BorderBrush"
-                                Value="#444"/>
-                        <Setter Property="BorderThickness"
-                                Value="1"/>
-                        <Setter Property="Cursor"
-                                Value="Hand"/>
-                </Style>
         </UserControl.Resources>
 
         <Grid Margin="15">
@@ -44,12 +27,11 @@
                                 <Button Content="🗑 Remove Selected"
                                         Style="{StaticResource DesignerBtn}"
                                         Click="RemoveField_Click"/>
-                                <Button Content="▲ Move Up"
-                                        Style="{StaticResource DesignerBtn}"
-                                        Click="MoveUp_Click"/>
-                                <Button Content="▼ Move Down"
-                                        Style="{StaticResource DesignerBtn}"
-                                        Click="MoveDown_Click"/>
+                                <TextBlock Text="⇅ Drag rows to reorder"
+                                           Foreground="#888"
+                                           FontSize="11"
+                                           VerticalAlignment="Center"
+                                           Margin="12,0,0,0"/>
                         </WrapPanel>
                 </Border>
 
@@ -135,7 +117,12 @@
                                   AlternatingRowBackground="#F9F9F9"
                                   Foreground="Black"
                                   HeadersVisibility="Column"
-                                  GridLinesVisibility="Horizontal">
+                                  GridLinesVisibility="Horizontal"
+                                  AllowDrop="True"
+                                  PreviewMouseLeftButtonDown="LayoutGrid_PreviewMouseLeftButtonDown"
+                                  PreviewMouseMove="LayoutGrid_PreviewMouseMove"
+                                  Drop="LayoutGrid_Drop"
+                                  DragOver="LayoutGrid_DragOver">
                                 <DataGrid.Columns>
                                         <DataGridTextColumn Header="Data Field"
                                                             Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
