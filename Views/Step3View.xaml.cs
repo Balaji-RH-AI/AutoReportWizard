@@ -20,7 +20,6 @@ namespace AutoReportWizard.Views
             InitializeComponent();
         }
 
-        // ── ComboBox bootstrapping ────────────────────────────────────────────
         private void AggCombo_Loaded(object sender, RoutedEventArgs e)
         {
             if (sender is not ComboBox combo || combo.Tag is not ReportField field) return;
@@ -28,7 +27,6 @@ namespace AutoReportWizard.Views
             combo.SelectedItem = field.Aggregate;
         }
 
-        // ── Event handlers ────────────────────────────────────────────────────
         private void GroupByCheck_Changed(object sender, RoutedEventArgs e)
         {
             if (sender is CheckBox cb && cb.DataContext is ReportField field && field.IsGroupBy)
@@ -97,22 +95,21 @@ namespace AutoReportWizard.Views
             sb.AppendLine("    SELECT");
 
             var selectItems = vm.Fields
-            .OrderBy(f => f.DisplayOrder)
-            .Select(f =>
-            {
-                string expr = f.GetSelectExpression();
-                    // Force an alias if one is missing so SQL Server doesn't crash on aggregations
-                if (!expr.Contains(" AS ", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f.DisplayOrder)
+                .Select(f =>
                 {
+                    string expr = f.GetSelectExpression();
+                    if (!expr.Contains(" AS ", StringComparison.OrdinalIgnoreCase))
+                    {
                         return $"        {expr} AS [{f.Name}]";
-                }
-                return $"        {expr}";
-            })
-            .ToList();
+                    }
+                    return $"        {expr}";
+                })
+                .ToList();
 
             if (!selectItems.Any())
             {
-                sb.AppendLine("        *"); // Fallback if no fields
+                sb.AppendLine("        *");
             }
             else
             {
@@ -126,7 +123,6 @@ namespace AutoReportWizard.Views
             string schemaClause = string.IsNullOrEmpty(vm.SchemaName) ? "dbo" : vm.SchemaName;
             sb.AppendLine($"    FROM [{vm.DatabaseName}].[{schemaClause}].[{vm.TableOrViewName}] AS [{vm.TableOrViewName}]");
 
-            // Inject the configured table joins from Step 2
             if (vm.ConfiguredJoins.Any())
             {
                 foreach (var join in vm.ConfiguredJoins)
@@ -151,8 +147,6 @@ namespace AutoReportWizard.Views
             vm.CustomSql = sb.ToString();
         }
 
-        // ── Parse Custom SQL to Layout ────────────────────────────────────────
-        // ── Parse Custom SQL to Layout ────────────────────────────────────────
         private async void ParseCustomSql_Click(object sender, RoutedEventArgs e)
         {
             if (DataContext is not WizardViewModel vm || string.IsNullOrWhiteSpace(vm.CustomSql)) return;
@@ -161,8 +155,6 @@ namespace AutoReportWizard.Views
             {
                 System.Windows.Input.Mouse.OverrideCursor = System.Windows.Input.Cursors.Wait;
                 var dbService = new Infrastructure.DatabaseService();
-
-                // 1. Rebuild ONLY the raw query (strip out the CREATE PROCEDURE wrapper)
                 var pureQuery = new StringBuilder();
 
                 if (!string.IsNullOrWhiteSpace(vm.PreQueryLogic))
@@ -179,6 +171,7 @@ namespace AutoReportWizard.Views
                     }
                     return $"    {expr}";
                 }).ToList();
+
                 if (!selectItems.Any())
                     pureQuery.AppendLine("    *");
                 else
@@ -200,7 +193,6 @@ namespace AutoReportWizard.Views
                 if (groupByFields.Any())
                     pureQuery.AppendLine("GROUP BY " + string.Join(", ", groupByFields.Select(f => $"[{f.Name}]")));
 
-                // 2. Create a temporary report object just for the parser so we don't mess up your UI
                 var tempReport = new ReportDefinition
                 {
                     ServerName = vm.Report.ServerName,
@@ -208,10 +200,9 @@ namespace AutoReportWizard.Views
                     AuthType = vm.Report.AuthType,
                     Username = vm.Report.Username,
                     Password = vm.Report.Password,
-                    CustomSql = pureQuery.ToString() // Pass the clean SELECT statement
+                    CustomSql = pureQuery.ToString()
                 };
 
-                // 3. Send the clean query to SQL Server
                 var customFields = await dbService.GetSchemaFromCustomSqlAsync(tempReport);
 
                 vm.Fields.Clear();

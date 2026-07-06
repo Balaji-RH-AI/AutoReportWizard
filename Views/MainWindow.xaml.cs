@@ -11,18 +11,6 @@ namespace AutoReportWizard.Views
         private int _currentStep = 1;
         public WizardViewModel AppState { get; } = new WizardViewModel();
 
-        private static readonly string[] StepHints =
-        {
-            "",
-            "Enter the target database server, authentication type, and credentials.",
-            "Select the database, schema, and table to define your dataset.",
-            "Choose grouping options and configure field-level transformations.",
-            "Set the report title, subtitle, and configure header/footer options.",
-            "Reorder columns and configure spatial header/footer zones.",
-            "Enter stored procedure parameters and run a live data preview.",
-            "Select your output folder and generate the final T-SQL and RDLC files."
-        };
-
         public MainWindow()
         {
             InitializeComponent();
@@ -56,9 +44,19 @@ namespace AutoReportWizard.Views
         // ── Navigation ────────────────────────────────────────────────────────
         private void NextButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentStep < 7) { _currentStep++; UpdateUI(); }
-        }
+            // If they click Finish on the last step, close the application
+            if (_currentStep == 7)
+            {
+                Application.Current.Shutdown();
+                return;
+            }
 
+            if (_currentStep < 7)
+            {
+                _currentStep++;
+                UpdateUI();
+            }
+        }
         private void BackButton_Click(object sender, RoutedEventArgs e)
         {
             if (_currentStep > 1) { _currentStep--; UpdateUI(); }
@@ -83,10 +81,19 @@ namespace AutoReportWizard.Views
                 case 7: this.Width = 1300; this.Height = 850; break;
             }
 
-            StepHintText.Text = StepHints[_currentStep];
             BackButton.IsEnabled = _currentStep > 1;
-            NextButton.Content = _currentStep == 7 ? "Generate Output ⚡" : "Next →";
-            NextButton.IsEnabled = _currentStep < 7;
+            if (_currentStep == 7)
+            {
+                NextButton.Content = "Finish ✓";
+                NextButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2E8B57")); // Sea Green
+                NextButton.Foreground = Brushes.White;
+            }
+            else
+            {
+                NextButton.Content = "Next →";
+                NextButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D4AF37")); // Gold
+                NextButton.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0A0A0A")); // Dark background color
+            }
 
             UpdateSidebarStep(1, Icon1, Text1); UpdateSidebarStep(2, Icon2, Text2);
             UpdateSidebarStep(3, Icon3, Text3); UpdateSidebarStep(4, Icon4, Text4);

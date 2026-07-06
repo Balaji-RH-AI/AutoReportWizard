@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using AutoReportWizard.Infrastructure;
 using AutoReportWizard.Models;
@@ -6,26 +9,11 @@ namespace AutoReportWizard.Services
 {
     /// <summary>
     /// Deterministic T-SQL generation engine.
-    ///
-    /// Converts a strongly-typed ReportDefinition into a syntactically perfect
-    /// CREATE OR ALTER PROCEDURE script using StringBuilder.
-    ///
-    /// SECURITY GUARANTEES:
-    ///   - Every identifier (server, database, schema, table, column) is passed
-    ///     through QuoteName(), which is a C# implementation of T-SQL QUOTENAME().
-    ///   - No user-provided strings are interpolated directly into SQL.
-    ///   - OPTION (RECOMPILE) is always emitted to prevent parameter-sniffing issues.
+    /// Natively resolves table prefixes for JOINs and automatically injects 
+    /// parameter-based dynamic WHERE clauses.
     /// </summary>
     public class SqlGeneratorService
     {
-        /// <summary>
-        /// Generates the full CREATE OR ALTER PROCEDURE script.
-        /// </summary>
-        /// <param name="def">
-        /// Fully-populated ReportDefinition. Caller must call SyncFieldsToReport()
-        /// on the ViewModel before invoking this method.
-        /// </param>
-        /// <returns>Complete T-SQL script as a string.</returns>
         public string Generate(ReportDefinition def)
         {
             using var span = TelemetryService.StartGenerationSpan(
@@ -33,67 +21,10 @@ namespace AutoReportWizard.Services
 
             try
             {
-                var sb = new StringBuilder();
-                var groupByFields = def.Fields.Where(f => f.IsGroupBy).ToList();
-                var selectItems = BuildSelectList(def.Fields);
+                string result = !string.IsNullOrWhiteSpace(def.CustomSql)
+                    ? BuildFromCustomSql(def)
+                    : BuildFromFields(def);
 
-                sb.AppendLine($"CREATE OR ALTER PROCEDURE {QuoteName(def.SchemaName)}.{QuoteName(def.StoredProcName)}");
-                sb.AppendLine("    @ProcessDate CHAR(8),");
-                sb.AppendLine("    @Siteid VARCHAR(MAX),");
-                sb.AppendLine("    @BatchNo VARCHAR(MAX),");
-                sb.AppendLine("    @WorkSource VARCHAR(MAX)");
-                sb.AppendLine("AS BEGIN");
-                sb.AppendLine("SET NOCOUNT ON;");
-                sb.AppendLine();
-
-                if (!string.IsNullOrWhiteSpace(def.PreQueryLogic))
-                {
-                    string pql = def.PreQueryLogic.Trim();
-                    if (pql.StartsWith("WITH ", StringComparison.OrdinalIgnoreCase))
-                    {
-                        pql = ";" + pql;
-                    }
-                    sb.AppendLine(pql);
-                    sb.AppendLine();
-                }
-
-                sb.AppendLine("SELECT");
-                if (selectItems.Count == 0)
-                {
-                    sb.AppendLine("    1 AS [__placeholder]");
-                }
-                else
-                {
-                    for (int i = 0; i < selectItems.Count; i++)
-                    {
-                        string comma = i < selectItems.Count - 1 ? "," : string.Empty;
-                        sb.AppendLine($"    {selectItems[i]}{comma}");
-                    }
-                }
-
-                sb.AppendLine($"FROM {QuoteName(def.DatabaseName)}.{QuoteName(def.SchemaName)}.{QuoteName(def.TableOrViewName)} AS {QuoteName(def.TableOrViewName)}");
-                foreach (var join in def.Joins.Where(j => j is not null))
-                {
-                    sb.AppendLine($"    {join.GetJoinExpression(def.DatabaseName, def.SchemaName)}");
-                }
-
-                if (!string.IsNullOrWhiteSpace(def.CustomWhereClause))
-                {
-                    sb.AppendLine($"WHERE {def.CustomWhereClause.Trim()}");
-                }
-
-                if (groupByFields.Any())
-                {
-                    sb.Append("GROUP BY ");
-                    sb.AppendLine(string.Join(", ", groupByFields.Select(f => QuoteName(f.Name))));
-                }
-
-                sb.AppendLine("OPTION (RECOMPILE);");
-                sb.AppendLine("SET NOCOUNT OFF;");
-                sb.AppendLine("END");
-                sb.AppendLine("GO");
-
-                string result = sb.ToString();
                 TelemetryService.RecordSuccess(span, def.StoredProcName);
                 return result;
             }
@@ -104,36 +35,179 @@ namespace AutoReportWizard.Services
             }
         }
 
-        // ── Private Helpers ───────────────────────────────────────────────────
+        private static string BuildFromCustomSql(ReportDefinition def)
+        {
+            var sb = new StringBuilder();
+            AppendProcedureHeader(sb, def);
 
-        private static List<string> BuildSelectList(List<ReportField> fields)
+            string executableQuery = SqlQueryExtractor.ExtractExecutableQuery(
+                def.CustomSql,
+                def.PreQueryLogic);
+
+            if (string.IsNullOrWhiteSpace(executableQuery))
+                throw new InvalidOperationException("Custom SQL does not contain a valid SELECT statement.");
+
+            sb.AppendLine(executableQuery.TrimEnd());
+            if (!executableQuery.Contains("OPTION (RECOMPILE)", StringComparison.OrdinalIgnoreCase))
+                sb.AppendLine("OPTION (RECOMPILE);");
+
+            sb.AppendLine("SET NOCOUNT OFF;");
+            sb.AppendLine("END");
+            sb.AppendLine("GO");
+            return sb.ToString();
+        }
+
+        private static string BuildFromFields(ReportDefinition def)
+        {
+            var sb = new StringBuilder();
+            var groupByFields = def.Fields.Where(f => f.IsGroupBy).ToList();
+            var selectItems = BuildSelectList(def);
+
+            AppendProcedureHeader(sb, def);
+
+            if (!string.IsNullOrWhiteSpace(def.PreQueryLogic))
+            {
+                string pql = def.PreQueryLogic.Trim();
+                if (pql.StartsWith("WITH ", StringComparison.OrdinalIgnoreCase))
+                    pql = ";" + pql;
+
+                sb.AppendLine(pql);
+                sb.AppendLine();
+            }
+
+            if (selectItems.Count == 0)
+                throw new InvalidOperationException("At least one field is required to generate SQL.");
+
+            sb.AppendLine("    SELECT");
+            for (int i = 0; i < selectItems.Count; i++)
+            {
+                string comma = i < selectItems.Count - 1 ? "," : string.Empty;
+                sb.AppendLine($"        {selectItems[i]}{comma}");
+            }
+
+            sb.AppendLine($"    FROM {QuoteName(def.DatabaseName)}.{QuoteName(def.SchemaName)}.{QuoteName(def.TableOrViewName)} AS {QuoteName(def.TableOrViewName)}");
+
+            foreach (var join in def.Joins.Where(j => j is not null))
+                sb.AppendLine($"    {join.GetJoinExpression(def.DatabaseName, def.SchemaName)}");
+
+            // ── DYNAMIC WHERE CLAUSE INJECTION ──────────────────────────────────────────
+            var whereConditions = new List<string>();
+
+            // 1. Add any custom hardcoded logic
+            if (!string.IsNullOrWhiteSpace(def.CustomWhereClause))
+                whereConditions.Add($"({def.CustomWhereClause.Trim()})");
+
+            // 2. Auto-generate the "Space = Retrieve All" parameter logic
+            var paramSource = def.DynamicParameters.Count > 0
+                ? def.DynamicParameters
+                : def.Parameters.Select(p => new DynamicParameter { ParameterName = p.Name }).ToList();
+
+            foreach (var param in paramSource)
+            {
+                string cleanName = param.ParameterName.TrimStart('@');
+
+                // Find the field that matches this parameter name
+                var matchingField = def.Fields.FirstOrDefault(f =>
+                    string.Equals(f.Name, cleanName, StringComparison.OrdinalIgnoreCase));
+
+                if (matchingField != null)
+                {
+                    string tableName = !string.IsNullOrWhiteSpace(matchingField.SourceTable)
+                        ? matchingField.SourceTable
+                        : def.TableOrViewName;
+
+                    string columnRef = $"{QuoteName(tableName)}.{QuoteName(matchingField.Name)}";
+                    whereConditions.Add($"(@{cleanName} = ' ' OR {columnRef} = @{cleanName})");
+                }
+            }
+
+            if (whereConditions.Count > 0)
+            {
+                sb.AppendLine("    WHERE");
+                for (int i = 0; i < whereConditions.Count; i++)
+                {
+                    string prefix = i == 0 ? "        " : "        AND ";
+                    sb.AppendLine($"{prefix}{whereConditions[i]}");
+                }
+            }
+
+            // ── GROUP BY CLAUSE ─────────────────────────────────────────────────────────
+            if (groupByFields.Count > 0)
+            {
+                sb.Append("    GROUP BY ");
+                var gbItems = groupByFields.Select(f =>
+                {
+                    string tableName = !string.IsNullOrWhiteSpace(f.SourceTable) ? f.SourceTable : def.TableOrViewName;
+                    return $"{QuoteName(tableName)}.{QuoteName(f.Name)}";
+                });
+                sb.AppendLine(string.Join(", ", gbItems));
+            }
+
+            sb.AppendLine("    OPTION (RECOMPILE);");
+            sb.AppendLine("    SET NOCOUNT OFF;");
+            sb.AppendLine("END");
+            sb.AppendLine("GO");
+            return sb.ToString();
+        }
+
+        private static void AppendProcedureHeader(StringBuilder sb, ReportDefinition def)
+        {
+            sb.AppendLine($"CREATE OR ALTER PROCEDURE {QuoteName(def.SchemaName)}.{QuoteName(def.StoredProcName)}");
+
+            var paramSource = def.DynamicParameters.Count > 0
+                ? def.DynamicParameters
+                : def.Parameters.Select(p => new DynamicParameter
+                {
+                    ParameterName = p.Name,
+                    DataType = p.SqlDataType
+                }).ToList();
+
+            if (paramSource.Count == 0)
+            {
+                sb.AppendLine("AS BEGIN");
+            }
+            else
+            {
+                for (int i = 0; i < paramSource.Count; i++)
+                {
+                    var param = paramSource[i];
+                    string name = param.ParameterName.StartsWith('@')
+                        ? param.ParameterName
+                        : $"@{param.ParameterName}";
+                    string comma = i < paramSource.Count - 1 ? "," : string.Empty;
+                    sb.AppendLine($"    {name} {param.DataType.ToUpperInvariant()}{comma}");
+                }
+
+                sb.AppendLine("AS BEGIN");
+            }
+
+            sb.AppendLine("    SET NOCOUNT ON;");
+            sb.AppendLine();
+        }
+
+        private static List<string> BuildSelectList(ReportDefinition def)
         {
             var items = new List<string>();
 
-            foreach (var field in fields.OrderBy(f => f.DisplayOrder))
+            foreach (var field in def.Fields.OrderBy(f => f.DisplayOrder))
             {
+                // Ensure every column is prefixed with its source table to prevent ambiguous column errors
+                string tableName = !string.IsNullOrWhiteSpace(field.SourceTable) ? field.SourceTable : def.TableOrViewName;
+                string colRef = $"{QuoteName(tableName)}.{QuoteName(field.Name)}";
+
                 if (field.IsGroupBy || field.Aggregate == AggregateFunction.None)
-                {
-                    // Plain column reference
-                    items.Add(QuoteName(field.Name));
-                }
+                    items.Add($"{colRef} AS {QuoteName(field.Name)}");
                 else
                 {
-                    // Aggregate expression with alias
                     string aggName = field.Aggregate.ToString();
                     string alias = $"{field.Name}_{aggName}";
-                    items.Add($"{aggName}({QuoteName(field.Name)}) AS {QuoteName(alias)}");
+                    items.Add($"{aggName}({colRef}) AS {QuoteName(alias)}");
                 }
             }
 
             return items;
         }
 
-        /// <summary>
-        /// C# implementation of T-SQL QUOTENAME(identifier, '[').
-        /// Wraps the identifier in square brackets and escapes any embedded ']'
-        /// by doubling it — identical to the SQL Server built-in function.
-        /// </summary>
         public static string QuoteName(string identifier)
         {
             if (string.IsNullOrEmpty(identifier))

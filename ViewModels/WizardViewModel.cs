@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
@@ -31,8 +32,23 @@ namespace AutoReportWizard.ViewModels
         /// <summary>Fields available in the selected table (Left Box)</summary>
         public ObservableCollection<ReportField> AvailableFields { get; } = new();
 
-        /// <summary>Observable list of parameters — bound to Step 5.</summary>
+        /// <summary>Observable list of parameters — bound to Step 6 preview bar.</summary>
         public ObservableCollection<ReportParameter> Parameters { get; } = new();
+
+        /// <summary>User-defined dynamic parameters with prompt text and header mapping.</summary>
+        public ObservableCollection<DynamicParameter> DynamicParameters { get; } = new();
+
+        /// <summary>SQL data types available in the parameter builder dropdown.</summary>
+        public static IReadOnlyList<string> SqlDataTypes { get; } = new[]
+        {
+            "int", "bigint", "smallint", "tinyint", "bit",
+            "char(8)", "varchar(50)", "varchar(max)", "nvarchar(50)", "nvarchar(max)",
+            "date", "datetime", "datetime2", "decimal(18,4)", "money", "float", "uniqueidentifier"
+        };
+
+        /// <summary>Header zone options for parameter-to-header mapping.</summary>
+        public static IReadOnlyList<HeaderZone> HeaderZones { get; } =
+            Enum.GetValues<HeaderZone>().ToList();
 
         /// <summary>Join mappings configured for the current report.</summary>
         public ObservableCollection<TableJoin> ConfiguredJoins { get; } = new();
@@ -55,20 +71,31 @@ namespace AutoReportWizard.ViewModels
         }
 
         public ICommand RunPreviewCommand { get; }
+        public ICommand AddParameterCommand { get; }
+        public ICommand RemoveParameterCommand { get; }
 
         public WizardViewModel()
         {
-            foreach (var parameter in Report.Parameters)
-                Parameters.Add(parameter);
+            foreach (var parameter in Report.DynamicParameters)
+                DynamicParameters.Add(parameter);
 
             foreach (var join in Report.Joins)
                 ConfiguredJoins.Add(join);
 
             ConfiguredJoins.CollectionChanged += (_, _) => SyncJoinsToReport();
+            DynamicParameters.CollectionChanged += (_, _) => SyncDynamicParametersToReport();
 
             RunPreviewCommand = new RelayCommand(
                 async _ => await RunPreviewAsync(),
-                _ => !IsPreviewRunning);
+                _ => !IsPreviewRunning && !IsBusy);
+
+            AddParameterCommand = new RelayCommand(
+                _ => AddParameter(),
+                _ => !IsBusy);
+
+            RemoveParameterCommand = new RelayCommand(
+                p => RemoveParameter(p as DynamicParameter),
+                p => p is DynamicParameter && !IsBusy);
         }
 
         // ── Step 1 Bindings (Target Environment & Credentials) ────────────────
@@ -287,7 +314,7 @@ namespace AutoReportWizard.ViewModels
 
                 IsBusy = true;
                 var schemas = await _databaseService.GetSchemasAsync(Report);
-                
+
                 var fetchedSchemas = schemas.ToList();
                 _schemaCache[SelectedDatabase] = fetchedSchemas;
 
@@ -327,7 +354,7 @@ namespace AutoReportWizard.ViewModels
                 var tables = await _databaseService.GetTablesAndViewsAsync(Report, SelectedSchema);
                 var fetchedTables = tables.ToList();
                 _tableCache[cacheKey] = fetchedTables;
-                
+
                 foreach (var t in fetchedTables) AvailableTables.Add(t);
             }
             catch (Exception ex)
@@ -492,6 +519,29 @@ namespace AutoReportWizard.ViewModels
             }
         }
 
+        private string? _previewRdlcPath;
+        /// <summary>Path to the temp RDLC file generated for Step 6 ReportViewer preview.</summary>
+        public string? PreviewRdlcPath
+        {
+            get => _previewRdlcPath;
+            set
+            {
+                _previewRdlcPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private DynamicParameter? _selectedDynamicParameter;
+        public DynamicParameter? SelectedDynamicParameter
+        {
+            get => _selectedDynamicParameter;
+            set
+            {
+                _selectedDynamicParameter = value;
+                OnPropertyChanged();
+            }
+        }
+
         private bool _isPreviewRunning;
         public bool IsPreviewRunning
         {
@@ -571,8 +621,49 @@ namespace AutoReportWizard.ViewModels
         public void SyncParametersToReport()
         {
             Report.Parameters.Clear();
-            foreach (var parameter in Parameters)
-                Report.Parameters.Add(parameter);
+            foreach (var parameter in DynamicParameters)
+                Report.Parameters.Add(parameter.ToReportParameter());
+        }
+
+        public void SyncDynamicParametersToReport()
+        {
+            Report.DynamicParameters.Clear();
+            for (int i = 0; i < DynamicParameters.Count; i++)
+            {
+                DynamicParameters[i].HeaderOrder = i;
+                Report.DynamicParameters.Add(DynamicParameters[i]);
+            }
+
+            SyncParametersToReport();
+        }
+
+        public void AddParameter()
+        {
+            string baseName = "@Param";
+            string uniqueName = baseName;
+            int counter = 1;
+            while (DynamicParameters.Any(p => p.ParameterName.Equals(uniqueName, StringComparison.OrdinalIgnoreCase)))
+            {
+                uniqueName = $"{baseName}{counter++}";
+            }
+
+            DynamicParameters.Add(new DynamicParameter
+            {
+                ParameterName = uniqueName,
+                DataType = "varchar(50)",
+                PromptText = "New Parameter"
+            });
+
+            SyncDynamicParametersToReport();
+        }
+
+        public void RemoveParameter(DynamicParameter? parameter)
+        {
+            if (parameter is null || !DynamicParameters.Contains(parameter))
+                return;
+
+            DynamicParameters.Remove(parameter);
+            SyncDynamicParametersToReport();
         }
 
         public void SyncJoinsToReport()
@@ -600,24 +691,40 @@ namespace AutoReportWizard.ViewModels
 
             PreviewError = string.Empty;
             IsPreviewRunning = true;
+            IsBusy = true;
+
+            string? previousRdlcPath = PreviewRdlcPath;
 
             try
             {
                 SyncFieldsToReport();
-                SyncParametersToReport();
+                SyncDynamicParametersToReport();
 
-                PreviewData = await _databaseService.ExecuteStoredProcedurePreviewAsync(Report, Report.Parameters);
-                AppendLog($"Preview returned {PreviewData.Rows.Count} row(s).");
+                var (dataTable, rdlcPath) = await Task.Run(async () =>
+                {
+                    var table = await _databaseService.ExecuteStoredProcedurePreviewAsync(
+                        Report, Report.Parameters);
+
+                    string path = await ReportPreviewService.ScaffoldRdlcToTempAsync(Report);
+                    return (table, path);
+                });
+
+                PreviewData = dataTable;
+                PreviewRdlcPath = rdlcPath;
+                AppendLog($"Preview returned {PreviewData.Rows.Count} row(s) with RDLC at {rdlcPath}.");
+                ReportPreviewService.TryDeleteTempFile(previousRdlcPath);
             }
             catch (Exception ex)
             {
                 PreviewData = null;
+                PreviewRdlcPath = null;
                 PreviewError = ex.Message;
                 AppendLog($"Preview failed: {ex.Message}");
             }
             finally
             {
                 IsPreviewRunning = false;
+                IsBusy = false;
             }
         }
 

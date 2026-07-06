@@ -12,7 +12,6 @@ namespace AutoReportWizard.Views
     public partial class Step7View : UserControl
     {
         private readonly SqlGeneratorService _sqlGen = new();
-        private readonly RdlcXmlEngine _rdlcGen = new();
         private readonly SqlVerificationService _sqlVerify = new();
         private readonly RdlcValidationService _rdlcVal = new();
 
@@ -91,7 +90,7 @@ namespace AutoReportWizard.Views
                 PhaseBLabel.Foreground = System.Windows.Media.Brushes.Gold;
                 vm.AppendLog("── Phase B: RDLC XML Generation ───────────────");
 
-                var rdlcDoc = await Task.Run(() => _rdlcGen.Generate(vm.Report));
+                var rdlcDoc = await Task.Run(() => RdlcXmlEngine.GenerateRdlcXml(vm.Report));
                 vm.AppendLog("  ✔ XDocument built successfully.");
 
                 string rdlcPath = Path.Combine(vm.OutputDirectory, $"{vm.Report.ReportName}.rdlc");

@@ -15,7 +15,7 @@
         <local:InverseBoolConverter x:Key="InverseBoolConverter"/>
 
         <Style x:Key="NavBtn"
-               TargetType="Button">
+                TargetType="Button">
             <Setter Property="FontSize"
                     Value="14"/>
             <Setter Property="FontWeight"
@@ -24,23 +24,25 @@
                     Value="Hand"/>
             <Setter Property="BorderThickness"
                     Value="0"/>
+            <Setter Property="FocusVisualStyle"
+                    Value="{x:Null}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border Background="{TemplateBinding Background}"
-                                CornerRadius="0"
+                                CornerRadius="4"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver"
-                                     Value="True">
+                                    Value="True">
                                 <Setter Property="Opacity"
                                         Value="0.85"/>
                             </Trigger>
                             <Trigger Property="IsEnabled"
-                                     Value="False">
+                                    Value="False">
                                 <Setter Property="Opacity"
                                         Value="0.3"/>
                             </Trigger>
@@ -51,12 +53,12 @@
         </Style>
 
         <Style x:Key="SidebarText"
-               TargetType="TextBlock">
+                TargetType="FrameworkElement">
             <Setter Property="VerticalAlignment"
                     Value="Center"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsChecked, ElementName=SidebarToggle}"
-                             Value="True">
+                        Value="True">
                     <Setter Property="Visibility"
                             Value="Collapsed"/>
                 </DataTrigger>
@@ -64,12 +66,12 @@
         </Style>
 
         <Style x:Key="SidebarContainer"
-               TargetType="Border">
+                TargetType="Border">
             <Setter Property="Width"
                     Value="260"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsChecked, ElementName=SidebarToggle}"
-                             Value="True">
+                        Value="True">
                     <Setter Property="Width"
                             Value="65"/>
                 </DataTrigger>
@@ -93,6 +95,7 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="70"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0"
@@ -128,24 +131,24 @@
                 </StackPanel>
 
                 <StackPanel Grid.Row="1"
-                            Margin="0,20,0,0">
+                        Margin="0,20,0,0">
                     <Grid Margin="0,15">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="65"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="Icon1"
-                                   Grid.Column="0"
-                                   Text="○"
-                                   FontSize="18"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
+                                Grid.Column="0"
+                                Text="○"
+                                FontSize="18"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
                         <TextBlock x:Name="Text1"
-                                   Grid.Column="1"
-                                   Text="Target Environment"
-                                   Style="{StaticResource SidebarText}"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"/>
+                                Grid.Column="1"
+                                Text="Target Environment"
+                                Style="{StaticResource SidebarText}"
+                                FontSize="14"
+                                FontWeight="SemiBold"/>
                     </Grid>
 
                     <Grid Margin="0,15">
@@ -154,17 +157,17 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="Icon2"
-                                   Grid.Column="0"
-                                   Text="○"
-                                   FontSize="18"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
+                                Grid.Column="0"
+                                Text="○"
+                                FontSize="18"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
                         <TextBlock x:Name="Text2"
-                                   Grid.Column="1"
-                                   Text="Dataset Definition"
-                                   Style="{StaticResource SidebarText}"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"/>
+                                Grid.Column="1"
+                                Text="Dataset Definition"
+                                Style="{StaticResource SidebarText}"
+                                FontSize="14"
+                                FontWeight="SemiBold"/>
                     </Grid>
 
                     <Grid Margin="0,15">
@@ -173,17 +176,17 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="Icon3"
-                                   Grid.Column="0"
-                                   Text="○"
-                                   FontSize="18"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
+                                Grid.Column="0"
+                                Text="○"
+                                FontSize="18"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
                         <TextBlock x:Name="Text3"
-                                   Grid.Column="1"
-                                   Text="Group By &amp; Aggregation"
-                                   Style="{StaticResource SidebarText}"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"/>
+                                Grid.Column="1"
+                                Text="Group By &amp; Aggregation"
+                                Style="{StaticResource SidebarText}"
+                                FontSize="14"
+                                FontWeight="SemiBold"/>
                     </Grid>
 
                     <Grid Margin="0,15">
@@ -192,17 +195,17 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="Icon4"
-                                   Grid.Column="0"
-                                   Text="○"
-                                   FontSize="18"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
+                                Grid.Column="0"
+                                Text="○"
+                                FontSize="18"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
                         <TextBlock x:Name="Text4"
-                                   Grid.Column="1"
-                                   Text="Header &amp; Footer"
-                                   Style="{StaticResource SidebarText}"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"/>
+                                Grid.Column="1"
+                                Text="Header &amp; Footer"
+                                Style="{StaticResource SidebarText}"
+                                FontSize="14"
+                                FontWeight="SemiBold"/>
                     </Grid>
 
                     <Grid Margin="0,15">
@@ -211,17 +214,17 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="Icon5"
-                                   Grid.Column="0"
-                                   Text="○"
-                                   FontSize="18"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
+                                Grid.Column="0"
+                                Text="○"
+                                FontSize="18"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
                         <TextBlock x:Name="Text5"
-                                   Grid.Column="1"
-                                   Text="Layout &amp; Generate"
-                                   Style="{StaticResource SidebarText}"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"/>
+                                Grid.Column="1"
+                                Text="Layout &amp; Generate"
+                                Style="{StaticResource SidebarText}"
+                                FontSize="14"
+                                FontWeight="SemiBold"/>
                     </Grid>
 
                     <Grid Margin="0,15">
@@ -230,17 +233,17 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="Icon6"
-                                   Grid.Column="0"
-                                   Text="○"
-                                   FontSize="18"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
+                                Grid.Column="0"
+                                Text="○"
+                                FontSize="18"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
                         <TextBlock x:Name="Text6"
-                                   Grid.Column="1"
-                                   Text="Live Preview"
-                                   Style="{StaticResource SidebarText}"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"/>
+                                Grid.Column="1"
+                                Text="Live Preview"
+                                Style="{StaticResource SidebarText}"
+                                FontSize="14"
+                                FontWeight="SemiBold"/>
                     </Grid>
 
                     <Grid Margin="0,15">
@@ -249,38 +252,74 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="Icon7"
-                                   Grid.Column="0"
-                                   Text="○"
-                                   FontSize="18"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"/>
+                                Grid.Column="0"
+                                Text="○"
+                                FontSize="18"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
                         <TextBlock x:Name="Text7"
-                                   Grid.Column="1"
-                                   Text="Output &amp; Generate"
-                                   Style="{StaticResource SidebarText}"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"/>
+                                Grid.Column="1"
+                                Text="Output &amp; Generate"
+                                Style="{StaticResource SidebarText}"
+                                FontSize="14"
+                                FontWeight="SemiBold"/>
                     </Grid>
                 </StackPanel>
+
+                <Border Grid.Row="2"
+                        BorderBrush="#222"
+                        BorderThickness="0,1,0,0"
+                        Padding="0,15">
+                    <Button Background="Transparent"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            ToolTip="Change Connection"
+                            Click="ChangeConnection_Click"
+                            IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="65"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       Text="⚙️"
+                                       FontSize="20"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="#007ACC"/>
+
+                            <StackPanel Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource SidebarText}">
+                                <TextBlock Text="Change Connection"
+                                           Foreground="#007ACC"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding DatabaseName}"
+                                           Foreground="#00FF88"
+                                           FontSize="11"
+                                           Margin="0,3,0,0"
+                                           TextTrimming="CharacterEllipsis"
+                                           MaxWidth="170"/>
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                </Border>
             </Grid>
         </Border>
 
         <Grid Grid.Column="1"
-              Background="#0A0A0A">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+                Background="#0A0A0A">
 
-            <Grid Grid.Row="0"
-                  Margin="40">
+            <Grid Margin="40,40,40,90">
                 <ContentControl x:Name="MainContentArea"/>
+
                 <Grid Background="#B2000000"
                       Panel.ZIndex="999"
                       Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">
                     <StackPanel HorizontalAlignment="Center"
-                                VerticalAlignment="Center">
+                            VerticalAlignment="Center">
                         <ProgressBar IsIndeterminate="True"
                                      Width="260"
                                      Height="4"
@@ -296,96 +335,33 @@
                 </Grid>
             </Grid>
 
-            <Border Grid.Row="1"
-                    Background="#111111"
-                    BorderBrush="#222"
-                    BorderThickness="0,1,0,0"
-                    Padding="30,20"
-                    CornerRadius="0">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="12"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Bottom"
+                        Margin="0,0,40,30"
+                        Panel.ZIndex="100">
 
-                    <TextBlock x:Name="StepHintText"
-                               Grid.Column="0"
-                               VerticalAlignment="Center"
-                               Foreground="#666"
-                               FontSize="13"/>
+                <Button x:Name="BackButton"
+                        Content="← Back"
+                        Width="110"
+                        Padding="0,11"
+                        Margin="0,0,15,0"
+                        Style="{StaticResource NavBtn}"
+                        Background="#252525"
+                        Foreground="#CCC"
+                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
+                        Click="BackButton_Click"/>
 
-                    <Button x:Name="BackButton"
-                            Grid.Column="1"
-                            Content="← Back"
-                            Width="110"
-                            Padding="0,11"
-                            Style="{StaticResource NavBtn}"
-                            Background="#252525"
-                            Foreground="#CCC"
-                            IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
-                            Click="BackButton_Click"/>
-
-                    <Button x:Name="NextButton"
-                            Grid.Column="3"
-                            Content="Next →"
-                            Width="160"
-                            Padding="0,11"
-                            Style="{StaticResource NavBtn}"
-                            Background="#D4AF37"
-                            Foreground="#0A0A0A"
-                            IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
-                            Click="NextButton_Click"/>
-                </Grid>
-            </Border>
-
-            <Border Grid.Row="2"
-                    Background="#0D0D0D"
-                    BorderBrush="#222"
-                    BorderThickness="0,1,0,0"
-                    Padding="20,8"
-                    CornerRadius="0">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Grid.Column="0"
-                                Orientation="Horizontal"
-                                VerticalAlignment="Center">
-                        <TextBlock Text="🟢 Connected to: "
-                                   Foreground="#888"
-                                   FontSize="11"
-                                   FontFamily="Consolas"/>
-                        <TextBlock Text="{Binding DatabaseName}"
-                                   Foreground="#00FF88"
-                                   FontSize="11"
-                                   FontWeight="Bold"
-                                   FontFamily="Consolas"/>
-                        <TextBlock Text="  on  "
-                                   Foreground="#888"
-                                   FontSize="11"
-                                   FontFamily="Consolas"/>
-                        <TextBlock Text="{Binding ServerName}"
-                                   Foreground="White"
-                                   FontSize="11"
-                                   FontWeight="Bold"
-                                   FontFamily="Consolas"/>
-                    </StackPanel>
-
-                    <Button Grid.Column="1"
-                            Content="⚙️ Change Connection"
-                            Background="Transparent"
-                            Foreground="#007ACC"
-                            BorderThickness="0"
-                            FontSize="11"
-                            Cursor="Hand"
-                            IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
-                            Click="ChangeConnection_Click"/>
-                </Grid>
-            </Border>
+                <Button x:Name="NextButton"
+                        Content="Next →"
+                        Width="160"
+                        Padding="0,11"
+                        Style="{StaticResource NavBtn}"
+                        Background="#D4AF37"
+                        Foreground="#0A0A0A"
+                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
+                        Click="NextButton_Click"/>
+            </StackPanel>
         </Grid>
     </Grid>
 </Window>

@@ -126,7 +126,13 @@
                                 <DataGrid.Columns>
                                         <DataGridTextColumn Header="Data Field"
                                                             Binding="{Binding Name, UpdateSourceTrigger=PropertyChanged}"
-                                                            Width="2*"/>
+                                                            Width="1.5*"/>
+                                        <DataGridTextColumn Header="Header Name"
+                                                            Binding="{Binding CustomHeaderLabel, UpdateSourceTrigger=PropertyChanged}"
+                                                            Width="1.5*"/>
+                                        <DataGridTextColumn Header="Width (in)"
+                                                            Binding="{Binding ColumnWidth, UpdateSourceTrigger=PropertyChanged, StringFormat={}{0:0.###}}"
+                                                            Width="*"/>
                                         <DataGridTextColumn Header="SQL Data Type"
                                                             Binding="{Binding SqlDataType}"
                                                             Width="*"

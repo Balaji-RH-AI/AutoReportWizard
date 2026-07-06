@@ -1,449 +1,649 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
 using System.Xml.Linq;
-using System.Xml.Schema;
 using AutoReportWizard.Models;
 
 namespace AutoReportWizard.Services
 {
     /// <summary>
-    /// RDLC XML generation engine using System.Xml.Linq.XDocument exclusively.
+    /// Programmatically builds an RDLC 2016 report definition (ReportViewerCore.WinForms /
+    /// VS2019+ designer schema, xmlns "…/2016/01/reportdefinition") entirely from a
+    /// <see cref="ReportDefinition"/> instance. No static/mock markup — every Textbox value
+    /// is either a live <c>Fields!</c>/<c>Parameters!</c>/<c>Globals!</c> expression or a piece
+    /// of literal text the user actually configured in the wizard (report title, static header
+    /// lines, parameter prompt text).
     ///
-    /// No string concatenation of XML at any point — all nodes are constructed
-    /// via XElement/XAttribute to prevent malformed XML crashes.
+    /// IMPLEMENTATION NOTES / ASSUMPTIONS (please read before wiring this in):
     ///
-    /// The generated RDLC targets the official SSRS 2016 schema:
-    ///   http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition
+    /// 1. Schema element order. RDL is a strict XSD sequence — children must appear in the
+    ///    order the schema declares, or ReportViewer will throw "The definition of the report
+    ///    is not valid." This class follows the ordering used by real Visual Studio–generated
+    ///    .rdlc files: item-specific content first (e.g. Paragraphs for a Textbox, TablixBody/
+    ///    TablixColumnHierarchy/TablixRowHierarchy for a Tablix), then position/size
+    ///    (Top/Left/Height/Width/ZIndex), then Style. No .NET/schema tooling was available in
+    ///    the environment this was written in to compile- or schema-validate the output, so
+    ///    please open the generated file in the RDLC designer (or run it through
+    ///    ReportViewerCore.WinForms once) before shipping.
     ///
-    /// Field bindings use =Fields!FieldName.Value syntax in the Value expressions.
+    /// 2. Spanned/merged cells (the "BATCH NBR : 3292" band that stretches across every
+    ///    column). RDL Tablix cells don't have a ColSpan attribute — a spanned cell is
+    ///    represented by repeating an IDENTICAL Textbox definition in every TablixCell of that
+    ///    row; the renderer detects the duplicate content across adjacent cells and merges
+    ///    them visually into a single band. <see cref="BuildSpannedRow"/> implements that by
+    ///    cloning the same Textbox element into each cell.
+    ///
+    /// 3. Tablix row/column hierarchy. Every TablixMember that has no nested TablixMembers
+    ///    maps to exactly one TablixRow, in document order. Members that DO have nested
+    ///    TablixMembers are pure grouping nodes and don't themselves produce a row. The row
+    ///    hierarchy built here is:
+    ///       [ static: column-header row ]
+    ///       [ dynamic: group member for the 1st IsGroupBy field
+    ///           [ static: group header row ("BATCH NBR : …", spanned) ]
+    ///           [ dynamic: next group level, or the Details group + one detail row ]
+    ///       ]
+    ///       [ static: grand-totals row ]  (only if IncludeGrandTotals)
+    ///    Multiple IsGroupBy fields nest recursively in DisplayOrder.
+    ///
+    /// 4. Local processing mode. Since this targets ReportViewerCore.WinForms hosted locally
+    ///    (no report server), the DataSource's ConnectionProperties are design-time metadata
+    ///    only — actual rows are supplied at runtime via
+    ///    <c>LocalReport.DataSources.Add(new ReportDataSource("MainDataSet", table))</c> using
+    ///    the DataTable your SqlGeneratorService returns. The DataSet's Fields must match that
+    ///    table's column names, which is why they're derived from
+    ///    <see cref="ReportField.GetDatasetFieldName"/> — the exact same alias
+    ///    <see cref="ReportField.GetSelectExpression"/> produces in the generated T-SQL.
     /// </summary>
-    public class RdlcXmlEngine
+    public static class RdlcXmlEngine
     {
-        // ── SSRS 2016 Schema Namespace ────────────────────────────────────────
         private static readonly XNamespace Rdl =
             "http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition";
+        private static readonly XNamespace Rd =
+            "http://schemas.microsoft.com/SQLServer/reporting/reportdesigner";
 
-        // ── Defaults ──────────────────────────────────────────────────────────
-        private const double TotalWidthInches = 10.0;
-        private const double PageHeightInches = 11.0;
-        private const double MarginInches = 0.5;
-        private const double HeaderHeightInches = 0.4;
-        private const double RowHeightInches = 0.25;
-        private const double FontSizePt = 10;
-        private const double HeaderFontSizePt = 8;
+        // Overall canvas — tuned for a wide, many-column detail grid like the Batch Detail
+        // Report. Adjust freely; everything downstream (column widths, header zone widths)
+        // is computed relative to these.
+        private const double PageWidthIn = 14.0;
+        private const double PageHeightIn = 8.5;
+        private const double MarginIn = 0.25;
+        private const double TablixTotalWidthIn = PageWidthIn - (2 * MarginIn);
 
-        /// <summary>
-        /// Builds the complete RDLC XDocument from a ReportDefinition.
-        /// The caller saves this document to disk.
-        /// </summary>
-        public XDocument Generate(ReportDefinition def)
+        private const string GridLineColor = "LightGrey";
+        private const double DefaultRowHeightIn = 0.20;
+        private const double HeaderRowHeightIn = 0.25;
+        private const double SpannedRowHeightIn = 0.22;
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // Entry point
+        // ══════════════════════════════════════════════════════════════════════════════
+
+        /// <summary>Builds the full RDLC XDocument for the given report definition.</summary>
+        public static XDocument GenerateRdlcXml(ReportDefinition definition)
         {
-            double bodyWidth = TotalWidthInches - (MarginInches * 2);
+            if (definition is null) throw new ArgumentNullException(nameof(definition));
+            if (definition.Fields is null || definition.Fields.Count == 0)
+                throw new InvalidOperationException(
+                    "ReportDefinition.Fields must be populated (Step 2) before RDLC generation.");
+            if (!definition.Fields.Any(f => f.IsDetailField))
+                throw new InvalidOperationException(
+                    "At least one ReportField must have IsDetailField = true to form the Tablix column set.");
 
-            // Columns that appear in the Tablix
-            var detailFields = def.Fields
-                .Where(f => f.IsDetailField)
-                .OrderBy(f => f.DisplayOrder)
-                .ToList();
+            var body = BuildBody(definition, out double reportSectionWidthIn);
+            var pageHeader = BuildPageHeader(definition);
+            var pageFooter = BuildPageFooter(definition);
 
-            double colWidth = detailFields.Count > 0
-                ? Math.Round(bodyWidth / detailFields.Count, 3)
-                : bodyWidth;
+            var page = new XElement(Rdl + "Page",
+                pageHeader,
+                pageFooter,
+                new XElement(Rdl + "PageHeight", In(PageHeightIn)),
+                new XElement(Rdl + "PageWidth", In(PageWidthIn)),
+                new XElement(Rdl + "LeftMargin", In(MarginIn)),
+                new XElement(Rdl + "RightMargin", In(MarginIn)),
+                new XElement(Rdl + "TopMargin", In(MarginIn)),
+                new XElement(Rdl + "BottomMargin", In(MarginIn)),
+                new XElement(Rdl + "ColumnSpacing", "0.13in"));
 
-            // ── Root Report element ──────────────────────────────────────────
+            var reportSection = new XElement(Rdl + "ReportSection",
+                body,
+                new XElement(Rdl + "Width", In(reportSectionWidthIn)),
+                page);
+
             var report = new XElement(Rdl + "Report",
-                new XAttribute("xmlns", Rdl.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "rd", Rd.NamespaceName),
+                new XAttribute("Name", SanitizeIdentifier(definition.ReportName)),
+                BuildDataSources(definition),
+                BuildDataSets(definition),
+                new XElement(Rdl + "ReportSections", reportSection),
+                BuildReportParametersXml(definition),
+                new XElement(Rdl + "Language", "en-US"));
 
-                // ── DataSources ─────────────────────────────────────────────
-                BuildDataSources(def),
-
-                // ── DataSets ────────────────────────────────────────────────
-                BuildDataSets(def),
-
-                // ── ReportSections (Body + Tablix) ───────────────────────────
-                new XElement(Rdl + "ReportSections",
-                    new XElement(Rdl + "ReportSection",
-                        new XElement(Rdl + "Body",
-                            new XElement(Rdl + "ReportItems",
-                                BuildTablix(def, detailFields, colWidth)
-                            ),
-                            new XElement(Rdl + "Height", $"{PageHeightInches - MarginInches * 2 - HeaderHeightInches}in")
-                        ),
-                        new XElement(Rdl + "Width", $"{TotalWidthInches}in"),
-                        new XElement(Rdl + "Page",
-                            BuildPageHeader(def),
-                            BuildPageFooter(def),
-                            new XElement(Rdl + "TopMargin", $"{MarginInches}in"),
-                            new XElement(Rdl + "BottomMargin", $"{MarginInches}in"),
-                            new XElement(Rdl + "LeftMargin", $"{MarginInches}in"),
-                            new XElement(Rdl + "RightMargin", $"{MarginInches}in"),
-                            new XElement(Rdl + "PageHeight", $"{PageHeightInches}in"),
-                            new XElement(Rdl + "PageWidth", $"{TotalWidthInches}in")
-                        )
-                    )
-                )
-            );
-
-            return new XDocument(
-                new XDeclaration("1.0", "utf-8", null),
-                report
-            );
+            return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), report);
         }
 
-        // ── DataSources ───────────────────────────────────────────────────────
-
-        private XElement BuildDataSources(ReportDefinition def)
+        /// <summary>Convenience overload: generates and saves the .rdlc file to disk.</summary>
+        public static void GenerateRdlcFile(ReportDefinition definition, string outputPath)
         {
-            return new XElement(Rdl + "DataSources",
+            var doc = GenerateRdlcXml(definition);
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+            using var writer = new StreamWriter(outputPath, false, System.Text.Encoding.UTF8);
+            doc.Save(writer);
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // DataSources / DataSets
+        // ══════════════════════════════════════════════════════════════════════════════
+
+        private static XElement BuildDataSources(ReportDefinition definition) =>
+            new XElement(Rdl + "DataSources",
                 new XElement(Rdl + "DataSource",
-                    new XAttribute("Name", "AutoReportDS"),
+                    new XAttribute("Name", "MainDataSource"),
                     new XElement(Rdl + "ConnectionProperties",
                         new XElement(Rdl + "DataProvider", "SQL"),
                         new XElement(Rdl + "ConnectString",
-                            $"Data Source={def.ServerName};" +
-                            $"Initial Catalog={def.DatabaseName};" +
-                            "Integrated Security=True"),
-                        new XElement(Rdl + "IntegratedSecurity", "true")
-                    )
-                )
-            );
-        }
+                            $"Data Source={Escape(definition.ServerName)};Initial Catalog={Escape(definition.DatabaseName)}")),
+                    new XElement(Rd + "DataSourceID", Guid.NewGuid().ToString())));
 
-        // ── DataSets ──────────────────────────────────────────────────────────
-
-        private XElement BuildDataSets(ReportDefinition def)
+        private static XElement BuildDataSets(ReportDefinition definition)
         {
-            // Build Fields — each has TypeName from ReportField.DotNetType
-            var fieldElements = def.Fields
+            // Include every field that shows up either as a Tablix column or as a grouping
+            // key — both need a matching entry so `Fields!X.Value` resolves at render time.
+            var fields = definition.Fields
+                .Where(f => f.IsDetailField || f.IsGroupBy)
                 .OrderBy(f => f.DisplayOrder)
-                .Select(f => new XElement(Rdl + "Field",
-                    new XAttribute("Name", f.GetDatasetFieldName()),
-                    new XElement(Rdl + "DataField", f.GetDatasetFieldName()),
-                    new XElement(Rdl + "TypeName", f.DotNetType)
-                ));
+                .Select(f =>
+                {
+                    string alias = SanitizeIdentifier(f.GetDatasetFieldName());
+                    return new XElement(Rdl + "Field",
+                        new XAttribute("Name", alias),
+                        new XElement(Rdl + "DataField", f.GetDatasetFieldName()),
+                        new XElement(Rd + "TypeName", string.IsNullOrWhiteSpace(f.DotNetType) ? "System.String" : f.DotNetType));
+                });
+
+            string commandText = string.IsNullOrWhiteSpace(definition.CustomSql)
+                ? "-- Populated by SqlGeneratorService at generation time; the DataSet's Fields\n-- below are what matter for local rendering — see LocalReport.DataSources at runtime."
+                : definition.CustomSql;
 
             return new XElement(Rdl + "DataSets",
                 new XElement(Rdl + "DataSet",
                     new XAttribute("Name", "MainDataSet"),
                     new XElement(Rdl + "Query",
-                        new XElement(Rdl + "DataSourceName", "AutoReportDS"),
-                        new XElement(Rdl + "CommandType", "StoredProcedure"),
-                        new XElement(Rdl + "CommandText",
-                            $"{def.SchemaName}.{def.StoredProcName}")
-                    ),
-                    new XElement(Rdl + "Fields", fieldElements)
-                )
-            );
+                        new XElement(Rdl + "DataSourceName", "MainDataSource"),
+                        new XElement(Rdl + "CommandText", commandText)),
+                    new XElement(Rdl + "Fields", fields)));
         }
 
-        // ── Tablix ────────────────────────────────────────────────────────────
+        // ══════════════════════════════════════════════════════════════════════════════
+        // ReportParameters (Step: Parameter binding requirement)
+        // ══════════════════════════════════════════════════════════════════════════════
 
-        private XElement BuildTablix(
-            ReportDefinition def,
-            List<ReportField> detailFields,
-            double colWidth)
+        private static XElement BuildReportParametersXml(ReportDefinition definition)
         {
-            return new XElement(Rdl + "Tablix",
-                new XAttribute("Name", "MainTablix"),
-                new XElement(Rdl + "TablixBody",
-                    // Column definitions — each column gets a calculated equal share
-                    new XElement(Rdl + "TablixColumns",
-                        detailFields.Select(_ =>
-                            new XElement(Rdl + "TablixColumn",
-                                new XElement(Rdl + "Width", $"{colWidth}in")
-                            )
-                        )
-                    ),
-                    new XElement(Rdl + "TablixRows",
-                        // Row 1: Column header labels
-                        BuildHeaderRow(detailFields, colWidth),
-                        // Row 2: Detail data row
-                        BuildDetailRow(detailFields, colWidth),
-                        // Row 3 (optional): Grand totals
-                        def.IncludeGrandTotals ? BuildGrandTotalRow(detailFields, colWidth) : null!
-                    )
-                ),
-                new XElement(Rdl + "TablixColumnHierarchy",
-                    new XElement(Rdl + "TablixMembers",
-                        detailFields.Select(_ =>
-                            new XElement(Rdl + "TablixMember")
-                        )
-                    )
-                ),
-                new XElement(Rdl + "TablixRowHierarchy",
-                    new XElement(Rdl + "TablixMembers",
-                        new XElement(Rdl + "TablixMember"),  // Header
-                        new XElement(Rdl + "TablixMember",   // Detail
-                            new XElement(Rdl + "Group",
-                                new XAttribute("Name", "Detail")
-                            )
-                        ),
-                        def.IncludeGrandTotals
-                            ? new XElement(Rdl + "TablixMember")  // Total
-                            : null!
-                    )
-                ),
-                new XElement(Rdl + "DataSetName", "MainDataSet"),
-                new XElement(Rdl + "Top", $"{HeaderHeightInches * 2}in"),
-                new XElement(Rdl + "Left", "0in"),
-                new XElement(Rdl + "Height", $"{RowHeightInches * 3}in"),
-                new XElement(Rdl + "Width", $"{colWidth * detailFields.Count}in")
-            );
+            // Parameters is meant to be synced from DynamicParameters before generation
+            // (see ReportDefinition's doc comment) — but fall back to deriving it here so
+            // this engine still works if that sync step hasn't run yet.
+            var sourceParams = definition.Parameters is { Count: > 0 }
+                ? definition.Parameters
+                : definition.DynamicParameters.Select(dp => dp.ToReportParameter()).ToList();
+
+            var dynamicByName = definition.DynamicParameters
+                .GroupBy(p => NormalizeParamName(p.ParameterName), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            var parameterElements = sourceParams.Select(rp =>
+            {
+                string rdlcName = NormalizeParamName(rp.Name);
+                dynamicByName.TryGetValue(rdlcName, out var dyn);
+                string prompt = !string.IsNullOrWhiteSpace(dyn?.PromptText) ? dyn!.PromptText : rdlcName;
+
+                return new XElement(Rdl + "ReportParameter",
+                    new XAttribute("Name", rdlcName),
+                    new XElement(Rdl + "DataType", string.IsNullOrWhiteSpace(rp.RdlcDataType) ? "String" : rp.RdlcDataType),
+                    rp.IsHidden ? new XElement(Rdl + "Hidden", "true") : null,
+                    new XElement(Rdl + "AllowBlank", rp.AllowBlank ? "true" : "false"),
+                    new XElement(Rdl + "Prompt", prompt));
+            });
+
+            return new XElement(Rdl + "ReportParameters", parameterElements);
         }
 
-        private XElement BuildHeaderRow(List<ReportField> fields, double colWidth)
+        // ══════════════════════════════════════════════════════════════════════════════
+        // Page Header — Left / Center / Right zones
+        // ══════════════════════════════════════════════════════════════════════════════
+
+        private static XElement BuildPageHeader(ReportDefinition definition)
         {
-            return new XElement(Rdl + "TablixRow",
-                new XElement(Rdl + "Height", $"{RowHeightInches}in"),
-                new XElement(Rdl + "TablixCells",
-                    fields.Select(f =>
-                        new XElement(Rdl + "TablixCell",
-                            new XElement(Rdl + "CellContents",
-                                MakeTextBox(
-                                    $"hdr_{f.GetDatasetFieldName()}",
-                                    f.GetDatasetFieldName(),   // literal label
-                                    isExpression: false,
-                                    bold: true,
-                                    fontSize: HeaderFontSizePt,
-                                    bgColor: "#1F4E79",
-                                    fgColor: "White"
-                                )
-                            )
-                        )
-                    )
-                )
-            );
-        }
+            double leftZoneLeftIn = MarginIn;
+            double leftZoneWidthIn = TablixTotalWidthIn * 0.30;
+            double centerZoneLeftIn = leftZoneLeftIn + leftZoneWidthIn + 0.1;
+            double centerZoneWidthIn = TablixTotalWidthIn * 0.40;
+            double rightZoneLeftIn = centerZoneLeftIn + centerZoneWidthIn + 0.1;
+            double rightZoneWidthIn = TablixTotalWidthIn - (rightZoneLeftIn - leftZoneLeftIn);
 
-        private XElement BuildDetailRow(List<ReportField> fields, double colWidth)
-        {
-            return new XElement(Rdl + "TablixRow",
-                new XElement(Rdl + "Height", $"{RowHeightInches}in"),
-                new XElement(Rdl + "TablixCells",
-                    fields.Select(f =>
-                        new XElement(Rdl + "TablixCell",
-                            new XElement(Rdl + "CellContents",
-                                MakeTextBox(
-                                    $"det_{f.GetDatasetFieldName()}",
-                                    $"=Fields!{f.GetDatasetFieldName()}.Value",
-                                    isExpression: true,
-                                    bold: false,
-                                    fontSize: FontSizePt,
-                                    bgColor: "Transparent",
-                                    fgColor: "Black"
-                                )
-                            )
-                        )
-                    )
-                )
-            );
-        }
-
-        private XElement BuildGrandTotalRow(List<ReportField> fields, double colWidth)
-        {
-            return new XElement(Rdl + "TablixRow",
-                new XElement(Rdl + "Height", $"{RowHeightInches}in"),
-                new XElement(Rdl + "TablixCells",
-                    fields.Select((f, idx) =>
-                    {
-                        bool canSum = f.Aggregate is AggregateFunction.SUM or AggregateFunction.COUNT
-                            or AggregateFunction.AVG;
-
-                        string value = idx == 0
-                            ? "Grand Total"
-                            : canSum
-                                ? $"=Sum(Fields!{f.GetDatasetFieldName()}.Value)"
-                                : string.Empty;
-
-                        return new XElement(Rdl + "TablixCell",
-                            new XElement(Rdl + "CellContents",
-                                MakeTextBox(
-                                    $"tot_{f.GetDatasetFieldName()}",
-                                    value,
-                                    isExpression: value.StartsWith("="),
-                                    bold: true,
-                                    fontSize: FontSizePt,
-                                    bgColor: "#D9E1F2",
-                                    fgColor: "Black"
-                                )
-                            )
-                        );
-                    })
-                )
-            );
-        }
-
-        // ── Page Header / Footer ──────────────────────────────────────────────
-
-        private XElement BuildPageHeader(ReportDefinition def)
-        {
             var items = new List<XElement>();
-            double top = 0;
 
-            // Report title
-            if (!string.IsNullOrWhiteSpace(def.ReportTitle))
+            var leftParams = definition.DynamicParameters
+                .Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Left)
+                .OrderBy(p => p.HeaderOrder).ToList();
+            var centerParams = definition.DynamicParameters
+                .Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Center)
+                .OrderBy(p => p.HeaderOrder).ToList();
+            var rightParams = definition.DynamicParameters
+                .Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Right)
+                .OrderBy(p => p.HeaderOrder).ToList();
+
+            // ── Left zone: optional static letterhead lines first, then dynamic "Label : @Param" lines ──
+            var leftLines = new List<string>();
+            if (!string.IsNullOrWhiteSpace(definition.StaticHeaderLeftLine1)) leftLines.Add(Literal(definition.StaticHeaderLeftLine1));
+            if (!string.IsNullOrWhiteSpace(definition.StaticHeaderLeftLine2)) leftLines.Add(Literal(definition.StaticHeaderLeftLine2));
+            foreach (var p in leftParams) leftLines.Add(LabelledParamExpr(p.PromptText, p.RdlcParameterName));
+
+            double leftY = 0.05;
+            for (int i = 0; i < leftLines.Count; i++)
             {
-                items.Add(MakeTextBox(
-                    "txtTitle", def.ReportTitle,
-                    isExpression: false, bold: true, fontSize: 14,
-                    bgColor: "Transparent", fgColor: "Black",
-                    top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
-                top += 0.25;
+                items.Add(BuildTextbox($"HdrLeft_{i}", leftLines[i], bold: true, align: "Left", fontSize: "9pt",
+                    top: In(leftY), left: In(leftZoneLeftIn), width: In(leftZoneWidthIn), height: In(0.20)));
+                leftY += 0.22;
             }
 
-            // Subtitle
-            if (!string.IsNullOrWhiteSpace(def.ReportSubtitle))
+            // ── Center zone: Report Title (line 1, large/bold), Subtitle line(s), then any center-mapped params ──
+            double centerY = 0.05;
+            if (!string.IsNullOrWhiteSpace(definition.ReportTitle))
             {
-                items.Add(MakeTextBox(
-                    "txtSubtitle", def.ReportSubtitle,
-                    isExpression: false, bold: false, fontSize: 10,
-                    bgColor: "Transparent", fgColor: "#555555",
-                    top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
-                top += 0.2;
+                items.Add(BuildTextbox("HdrCenter_Title", Literal(definition.ReportTitle), bold: true, align: "Center", fontSize: "16pt",
+                    top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.30)));
+                centerY += 0.32;
+            }
+            if (!string.IsNullOrWhiteSpace(definition.ReportSubtitle))
+            {
+                // ReportDefinition only exposes a single ReportSubtitle string. If you need more
+                // than one subtitle line as a first-class field (rather than newline-delimited,
+                // as done here), consider adding a `List<string> ReportSubtitleLines` to
+                // ReportDefinition — this split is a pragmatic bridge until then.
+                var subtitleLines = definition.ReportSubtitle
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                for (int i = 0; i < subtitleLines.Length; i++)
+                {
+                    items.Add(BuildTextbox($"HdrCenter_Subtitle_{i}", Literal(subtitleLines[i]), bold: true, align: "Center", fontSize: "11pt",
+                        top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.22)));
+                    centerY += 0.22;
+                }
+            }
+            foreach (var p in centerParams)
+            {
+                items.Add(BuildTextbox($"HdrCenter_{SanitizeIdentifier(p.RdlcParameterName)}", LabelledParamExpr(p.PromptText, p.RdlcParameterName),
+                    bold: true, align: "Center", fontSize: "9pt",
+                    top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.20)));
+                centerY += 0.22;
             }
 
-            // Dynamic page header mappings using SSRS expressions
-            if (!string.IsNullOrWhiteSpace(def.HeaderSiteField))
+            // ── Right zone: dynamic "Label : @Param" lines, then built-in Page X / Y ──
+            double rightY = 0.05;
+            foreach (var p in rightParams)
             {
-                items.Add(MakeTextBox(
-                    "txtHeaderSite",
-                    $"=\"Site: \" & First(Fields!{def.HeaderSiteField}.Value, \"MainDataSet\")",
-                    isExpression: true, bold: false, fontSize: 10,
-                    bgColor: "Transparent", fgColor: "Black",
-                    top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
-                top += 0.16;
+                items.Add(BuildTextbox($"HdrRight_{SanitizeIdentifier(p.RdlcParameterName)}", LabelledParamExpr(p.PromptText, p.RdlcParameterName),
+                    bold: true, align: "Right", fontSize: "9pt",
+                    top: In(rightY), left: In(rightZoneLeftIn), width: In(rightZoneWidthIn), height: In(0.20)));
+                rightY += 0.22;
+            }
+            if (definition.IncludePageNumbers)
+            {
+                items.Add(BuildTextbox("HdrRight_PageNumber",
+                    "=\"Page : \" & Globals!PageNumber & \" / \" & Globals!TotalPages",
+                    bold: true, align: "Right", fontSize: "9pt",
+                    top: In(rightY), left: In(rightZoneLeftIn), width: In(rightZoneWidthIn), height: In(0.20)));
+                rightY += 0.22;
             }
 
-            if (!string.IsNullOrWhiteSpace(def.HeaderProcessDateField))
-            {
-                items.Add(MakeTextBox(
-                    "txtHeaderProcessDate",
-                    $"=\"Process Date: \" & First(Fields!{def.HeaderProcessDateField}.Value, \"MainDataSet\")",
-                    isExpression: true, bold: false, fontSize: 10,
-                    bgColor: "Transparent", fgColor: "Black",
-                    top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
-                top += 0.16;
-            }
-
-            if (!string.IsNullOrWhiteSpace(def.HeaderJulianField))
-            {
-                items.Add(MakeTextBox(
-                    "txtHeaderJulian",
-                    $"=\"Julian Date: \" & First(Fields!{def.HeaderJulianField}.Value, \"MainDataSet\")",
-                    isExpression: true, bold: false, fontSize: 10,
-                    bgColor: "Transparent", fgColor: "Black",
-                    top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
-                top += 0.16;
-            }
-
-            if (!string.IsNullOrWhiteSpace(def.HeaderWorksourceField))
-            {
-                items.Add(MakeTextBox(
-                    "txtHeaderWorksource",
-                    $"=\"Worksource: \" & First(Fields!{def.HeaderWorksourceField}.Value, \"MainDataSet\")",
-                    isExpression: true, bold: false, fontSize: 10,
-                    bgColor: "Transparent", fgColor: "Black",
-                    top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
-                top += 0.16;
-            }
-
-            if (!string.IsNullOrWhiteSpace(def.HeaderLoadField))
-            {
-                items.Add(MakeTextBox(
-                    "txtHeaderLoad",
-                    $"=\"Load Number: \" & First(Fields!{def.HeaderLoadField}.Value, \"MainDataSet\")",
-                    isExpression: true, bold: false, fontSize: 10,
-                    bgColor: "Transparent", fgColor: "Black",
-                    top: top, left: 0, width: TotalWidthInches - MarginInches * 2));
-            }
+            double headerHeightIn = Math.Max(0.30, new[] { leftY, centerY, rightY }.Max() + 0.05);
 
             return new XElement(Rdl + "PageHeader",
-                new XElement(Rdl + "Height", $"{HeaderHeightInches}in"),
+                new XElement(Rdl + "Height", In(headerHeightIn)),
                 new XElement(Rdl + "PrintOnFirstPage", "true"),
                 new XElement(Rdl + "PrintOnLastPage", "true"),
-                new XElement(Rdl + "ReportItems", items)
-            );
+                new XElement(Rdl + "ReportItems", items));
         }
 
-        private XElement BuildPageFooter(ReportDefinition def)
+        private static XElement? BuildPageFooter(ReportDefinition definition)
         {
-            var items = new List<XElement>();
-            double rightEdge = TotalWidthInches - MarginInches * 2;
+            if (!definition.IncludeExecutionTime)
+                return null;
 
-            // Execution timestamp
-            if (def.IncludeExecutionTime)
-            {
-                items.Add(MakeTextBox(
-                    "txtExecTime",
-                    "=Globals!ExecutionTime",
-                    isExpression: true, bold: false, fontSize: 8,
-                    bgColor: "Transparent", fgColor: "#888888",
-                    top: 0, left: 0, width: rightEdge / 2));
-            }
-
-            // Page numbers
-            if (def.IncludePageNumbers)
-            {
-                items.Add(MakeTextBox(
-                    "txtPageNum",
-                    "=\"Page \" & Globals!PageNumber & \" of \" & Globals!TotalPages",
-                    isExpression: true, bold: false, fontSize: 8,
-                    bgColor: "Transparent", fgColor: "#888888",
-                    top: 0, left: rightEdge / 2, width: rightEdge / 2));
-            }
+            var tb = BuildTextbox("FtrExecutionTime", "=\"Printed: \" & Globals!ExecutionTime",
+                bold: false, align: "Left", fontSize: "8pt",
+                top: "0.03in", left: In(MarginIn), width: "4in", height: "0.18in");
 
             return new XElement(Rdl + "PageFooter",
                 new XElement(Rdl + "Height", "0.25in"),
                 new XElement(Rdl + "PrintOnFirstPage", "true"),
                 new XElement(Rdl + "PrintOnLastPage", "true"),
-                new XElement(Rdl + "ReportItems", items)
-            );
+                new XElement(Rdl + "ReportItems", tb));
         }
 
-        // ── TextBox Factory ───────────────────────────────────────────────────
+        // ══════════════════════════════════════════════════════════════════════════════
+        // Body: Tablix with grouping (Requirement #2)
+        // ══════════════════════════════════════════════════════════════════════════════
 
-        private static XElement MakeTextBox(
+        private static XElement BuildBody(ReportDefinition definition, out double reportSectionWidthIn)
+        {
+            var columns = definition.Fields.Where(f => f.IsDetailField).OrderBy(f => f.DisplayOrder).ToList();
+            var groupFields = definition.Fields.Where(f => f.IsGroupBy).OrderBy(f => f.DisplayOrder).ToList();
+
+            var widths = ResolveColumnWidths(columns);
+            double tablixWidthIn = widths.Sum();
+
+            var tablixColumns = widths.Select(w => new XElement(Rdl + "TablixColumn", new XElement(Rdl + "Width", In(w))));
+            var columnMembers = columns.Select(_ => new XElement(Rdl + "TablixMember"));
+
+            var rows = new List<XElement> { BuildColumnHeaderRow(columns) };
+            var topLevelRowMembers = new List<XElement> { new XElement(Rdl + "TablixMember") }; // maps to column-header row
+
+            if (groupFields.Count > 0)
+            {
+                var (groupMember, groupRows) = BuildGroupLevel(groupFields, 0, columns);
+                rows.AddRange(groupRows);
+                topLevelRowMembers.Add(groupMember);
+            }
+            else
+            {
+                // No grouping configured — flat detail table under an unnamed Details group.
+                rows.Add(BuildDetailRow(columns));
+                topLevelRowMembers.Add(new XElement(Rdl + "TablixMember",
+                    new XElement(Rdl + "Group", new XAttribute("Name", "Details"))));
+            }
+
+            if (definition.IncludeGrandTotals)
+            {
+                rows.Add(BuildGrandTotalsRow(columns));
+                topLevelRowMembers.Add(new XElement(Rdl + "TablixMember"));
+            }
+
+            double tablixHeightIn = rows.Count * DefaultRowHeightIn + 0.10;
+
+            var tablix = new XElement(Rdl + "Tablix",
+                new XAttribute("Name", "Tablix_Main"),
+                new XElement(Rdl + "TablixBody",
+                    new XElement(Rdl + "TablixColumns", tablixColumns),
+                    new XElement(Rdl + "TablixRows", rows)),
+                new XElement(Rdl + "TablixColumnHierarchy", new XElement(Rdl + "TablixMembers", columnMembers)),
+                new XElement(Rdl + "TablixRowHierarchy", new XElement(Rdl + "TablixMembers", topLevelRowMembers)),
+                new XElement(Rdl + "DataSetName", "MainDataSet"),
+                new XElement(Rdl + "Top", "0in"),
+                new XElement(Rdl + "Left", "0in"),
+                new XElement(Rdl + "Height", In(tablixHeightIn)),
+                new XElement(Rdl + "Width", In(tablixWidthIn)));
+
+            reportSectionWidthIn = Math.Max(tablixWidthIn, TablixTotalWidthIn);
+
+            return new XElement(Rdl + "Body",
+                new XElement(Rdl + "ReportItems", tablix),
+                new XElement(Rdl + "Height", In(tablixHeightIn + 0.10)));
+        }
+
+        /// <summary>
+        /// Recursively builds one level of the row-grouping hierarchy for the given ordered
+        /// list of IsGroupBy fields. Returns the TablixMember for this level plus the flat,
+        /// document-ordered list of TablixRow elements it (and its descendants) contribute.
+        /// </summary>
+        private static (XElement Member, List<XElement> Rows) BuildGroupLevel(
+            List<ReportField> groupFields, int level, List<ReportField> columns)
+        {
+            if (level >= groupFields.Count)
+            {
+                var detailsMember = new XElement(Rdl + "TablixMember",
+                    new XElement(Rdl + "Group", new XAttribute("Name", "Details")));
+                return (detailsMember, new List<XElement> { BuildDetailRow(columns) });
+            }
+
+            var field = groupFields[level];
+            string fieldRef = SanitizeIdentifier(field.GetDatasetFieldName());
+            string groupName = $"{fieldRef}Group";
+            string label = field.DisplayHeaderLabel.ToUpperInvariant();
+            string headerExpr = $"=\"{Escape(label)} : \" & Fields!{fieldRef}.Value";
+
+            var headerRow = BuildSpannedRow($"GroupHeader_{groupName}", headerExpr, columns.Count);
+            var headerMember = new XElement(Rdl + "TablixMember"); // static leaf → maps to headerRow
+
+            var (childMember, childRows) = BuildGroupLevel(groupFields, level + 1, columns);
+
+            var groupMember = new XElement(Rdl + "TablixMember",
+                new XElement(Rdl + "Group",
+                    new XAttribute("Name", groupName),
+                    new XElement(Rdl + "GroupExpressions",
+                        new XElement(Rdl + "GroupExpression", $"=Fields!{fieldRef}.Value"))),
+                new XElement(Rdl + "TablixMembers", headerMember, childMember));
+
+            var rows = new List<XElement> { headerRow };
+            rows.AddRange(childRows);
+            return (groupMember, rows);
+        }
+
+        private static XElement BuildColumnHeaderRow(List<ReportField> columns)
+        {
+            var cells = columns.Select(f =>
+                new XElement(Rdl + "TablixCell",
+                    new XElement(Rdl + "CellContents",
+                        BuildTextbox($"Hdr_{SanitizeIdentifier(f.Name)}", Literal(f.DisplayHeaderLabel.ToUpperInvariant()),
+                            bold: true, align: "Center", fontSize: "9pt",
+                            topBorderColor: GridLineColor, bottomBorderColor: GridLineColor))));
+
+            return new XElement(Rdl + "TablixRow",
+                new XElement(Rdl + "Height", In(HeaderRowHeightIn)),
+                new XElement(Rdl + "TablixCells", cells));
+        }
+
+        private static XElement BuildDetailRow(List<ReportField> columns)
+        {
+            var cells = columns.Select(f =>
+            {
+                string fieldName = SanitizeIdentifier(f.GetDatasetFieldName());
+                string expr = $"=Fields!{fieldName}.Value";
+                return new XElement(Rdl + "TablixCell",
+                    new XElement(Rdl + "CellContents",
+                        BuildTextbox($"Txt_{fieldName}", expr, bold: false, align: IsRightAligned(f) ? "Right" : "Left",
+                            fontSize: "9pt", format: ResolveFormat(f))));
+            });
+
+            return new XElement(Rdl + "TablixRow",
+                new XElement(Rdl + "Height", In(DefaultRowHeightIn)),
+                new XElement(Rdl + "TablixCells", cells));
+        }
+
+        private static XElement BuildGrandTotalsRow(List<ReportField> columns)
+        {
+            var cells = new List<XElement>();
+            for (int i = 0; i < columns.Count; i++)
+            {
+                var f = columns[i];
+                XElement textbox;
+
+                if (i == 0)
+                {
+                    textbox = BuildTextbox("Txt_GrandTotalsLabel", Literal("GRAND TOTALS"),
+                        bold: true, align: "Left", fontSize: "9pt", topBorderColor: GridLineColor);
+                }
+                else if (f.Aggregate != AggregateFunction.None)
+                {
+                    string fieldName = SanitizeIdentifier(f.GetDatasetFieldName());
+                    textbox = BuildTextbox($"Txt_Total_{fieldName}", $"=Sum(Fields!{fieldName}.Value)",
+                        bold: true, align: "Right", fontSize: "9pt",
+                        format: ResolveFormat(f), topBorderColor: GridLineColor);
+                }
+                else
+                {
+                    textbox = BuildTextbox($"Txt_TotalBlank_{i}", string.Empty,
+                        bold: false, align: "Left", fontSize: "9pt", topBorderColor: GridLineColor);
+                }
+
+                cells.Add(new XElement(Rdl + "TablixCell", new XElement(Rdl + "CellContents", textbox)));
+            }
+
+            return new XElement(Rdl + "TablixRow",
+                new XElement(Rdl + "Height", In(DefaultRowHeightIn)),
+                new XElement(Rdl + "TablixCells", cells));
+        }
+
+        /// <summary>
+        /// Builds a row where the SAME Textbox definition is repeated in every cell so the
+        /// renderer merges them into a single band spanning the full table width. Used for
+        /// the "BATCH NBR : 3292" style group header.
+        /// </summary>
+        private static XElement BuildSpannedRow(string baseName, string expression, int columnCount)
+        {
+            var template = BuildTextbox(baseName, expression, bold: true, align: "Left", fontSize: "9pt",
+                topBorderColor: GridLineColor, bottomBorderColor: GridLineColor);
+
+            var cells = Enumerable.Range(0, columnCount)
+                .Select(_ => new XElement(Rdl + "TablixCell", new XElement(Rdl + "CellContents", new XElement(template))));
+
+            return new XElement(Rdl + "TablixRow",
+                new XElement(Rdl + "Height", In(SpannedRowHeightIn)),
+                new XElement(Rdl + "TablixCells", cells));
+        }
+
+        private static List<double> ResolveColumnWidths(List<ReportField> columns)
+        {
+            var widths = new double[columns.Count];
+            double explicitSum = 0;
+            int autoCount = 0;
+
+            for (int i = 0; i < columns.Count; i++)
+            {
+                if (columns[i].ColumnWidth > 0)
+                {
+                    widths[i] = columns[i].ColumnWidth;
+                    explicitSum += widths[i];
+                }
+                else
+                {
+                    autoCount++;
+                }
+            }
+
+            double remaining = Math.Max(TablixTotalWidthIn - explicitSum, autoCount * 0.5);
+            double autoWidth = autoCount > 0 ? remaining / autoCount : 0;
+
+            for (int i = 0; i < columns.Count; i++)
+                if (columns[i].ColumnWidth <= 0)
+                    widths[i] = autoWidth;
+
+            return widths.ToList();
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // Shared Textbox builder
+        // ══════════════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Builds a Textbox element. When top/left/width/height are supplied, it's built as a
+        /// free-floating item (PageHeader/PageFooter); when they're omitted, it's built for use
+        /// inside a TablixCell, where the cell/column/row dimensions govern its geometry.
+        /// </summary>
+        private static XElement BuildTextbox(
             string name,
             string value,
-            bool isExpression,
-            bool bold,
-            double fontSize,
-            string bgColor,
-            string fgColor,
-            double top = 0,
-            double left = 0,
-            double width = 2.0,
-            double height = 0.25)
+            bool bold = false,
+            string align = "Left",
+            string fontSize = "9pt",
+            string? format = null,
+            string? topBorderColor = null,
+            string? bottomBorderColor = null,
+            string? top = null,
+            string? left = null,
+            string? width = null,
+            string? height = null)
         {
-            return new XElement(Rdl + "Textbox",
+            var textRunStyle = new XElement(Rdl + "Style",
+                new XElement(Rdl + "FontWeight", bold ? "Bold" : "Normal"),
+                new XElement(Rdl + "FontSize", fontSize));
+            if (format is not null)
+                textRunStyle.Add(new XElement(Rdl + "Format", format));
+
+            var textbox = new XElement(Rdl + "Textbox",
                 new XAttribute("Name", name),
                 new XElement(Rdl + "CanGrow", "true"),
+                new XElement(Rdl + "KeepTogether", "true"),
                 new XElement(Rdl + "Paragraphs",
                     new XElement(Rdl + "Paragraph",
                         new XElement(Rdl + "TextRuns",
                             new XElement(Rdl + "TextRun",
-                                new XElement(Rdl + "Value", isExpression ? value : $"\"{value}\""),
-                                new XElement(Rdl + "Style",
-                                    new XElement(Rdl + "FontSize", $"{fontSize}pt"),
-                                    new XElement(Rdl + "FontWeight", bold ? "Bold" : "Normal"),
-                                    new XElement(Rdl + "Color", fgColor)
-                                )
-                            )
-                        )
-                    )
-                ),
-                new XElement(Rdl + "Style",
-                    new XElement(Rdl + "BackgroundColor", bgColor),
-                    new XElement(Rdl + "BorderStyle",
-                        new XElement(Rdl + "Default", "Solid")
-                    ),
-                    new XElement(Rdl + "BorderColor",
-                        new XElement(Rdl + "Default", "#CCCCCC")
-                    )
-                ),
-                new XElement(Rdl + "Top", $"{top}in"),
-                new XElement(Rdl + "Left", $"{left}in"),
-                new XElement(Rdl + "Height", $"{height}in"),
-                new XElement(Rdl + "Width", $"{width}in")
-            );
+                                new XElement(Rdl + "Value", value),
+                                textRunStyle)),
+                        new XElement(Rdl + "Style", new XElement(Rdl + "TextAlign", align)))),
+                new XElement(Rd + "DefaultName", name));
+
+            if (top is not null) textbox.Add(new XElement(Rdl + "Top", top));
+            if (left is not null) textbox.Add(new XElement(Rdl + "Left", left));
+            if (height is not null) textbox.Add(new XElement(Rdl + "Height", height));
+            if (width is not null) textbox.Add(new XElement(Rdl + "Width", width));
+
+            var boxStyle = new XElement(Rdl + "Style",
+                new XElement(Rdl + "Border", new XElement(Rdl + "Style", "None")),
+                new XElement(Rdl + "PaddingLeft", "2pt"),
+                new XElement(Rdl + "PaddingRight", "2pt"),
+                new XElement(Rdl + "PaddingTop", "1pt"),
+                new XElement(Rdl + "PaddingBottom", "1pt"));
+
+            if (topBorderColor is not null)
+                boxStyle.Add(new XElement(Rdl + "TopBorder",
+                    new XElement(Rdl + "Style", "Solid"),
+                    new XElement(Rdl + "Width", "0.5pt"),
+                    new XElement(Rdl + "Color", topBorderColor)));
+            if (bottomBorderColor is not null)
+                boxStyle.Add(new XElement(Rdl + "BottomBorder",
+                    new XElement(Rdl + "Style", "Solid"),
+                    new XElement(Rdl + "Width", "0.5pt"),
+                    new XElement(Rdl + "Color", bottomBorderColor)));
+
+            textbox.Add(boxStyle);
+            return textbox;
         }
+
+        // ══════════════════════════════════════════════════════════════════════════════
+        // Small helpers
+        // ══════════════════════════════════════════════════════════════════════════════
+
+        private static string In(double inches) => inches.ToString("0.00", CultureInfo.InvariantCulture) + "in";
+
+        private static string Literal(string text) => $"=\"{Escape(text)}\"";
+
+        private static string Escape(string s) => (s ?? string.Empty).Replace("\"", "\"\"");
+
+        private static string LabelledParamExpr(string label, string paramName)
+        {
+            string safeLabel = string.IsNullOrWhiteSpace(label) ? paramName : label;
+            return $"=\"{Escape(safeLabel)} : \" & Parameters!{SanitizeIdentifier(paramName)}.Value";
+        }
+
+        private static string NormalizeParamName(string raw) => SanitizeIdentifier((raw ?? string.Empty).TrimStart('@'));
+
+        /// <summary>Strips characters that aren't valid in an RDL/CLR identifier (element Name / Fields!x / Parameters!x).</summary>
+        private static string SanitizeIdentifier(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return "Field";
+            var sanitized = new string(raw.Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray());
+            if (sanitized.Length == 0) sanitized = "Field";
+            if (!char.IsLetter(sanitized[0]) && sanitized[0] != '_') sanitized = "_" + sanitized;
+            return sanitized;
+        }
+
+        /// <summary>4-decimal numeric format for money/decimal-like types, whole-number format for
+        /// integers, short date for date/time types — matches the "AMOUNT PAID: 172.0000" requirement.</summary>
+        private static string? ResolveFormat(ReportField f)
+        {
+            return f.SqlDataType.Trim().ToLowerInvariant() switch
+            {
+                "decimal" or "money" or "numeric" or "smallmoney" or "float" or "real" => "N4",
+                "int" or "bigint" or "smallint" or "tinyint" => "N0",
+                "date" or "datetime" or "datetime2" or "smalldatetime" => "d",
+                _ => null
+            };
+        }
+
+        private static bool IsRightAligned(ReportField f) => f.SqlDataType.Trim().ToLowerInvariant() is
+            "decimal" or "money" or "numeric" or "smallmoney" or "float" or "real" or
+            "int" or "bigint" or "smallint" or "tinyint";
     }
 }

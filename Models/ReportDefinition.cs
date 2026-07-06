@@ -49,14 +49,14 @@ namespace AutoReportWizard.Models
 
         /// <summary>
         /// User-defined input parameters for the Stored Procedure and RDLC file.
+        /// Synced from <see cref="DynamicParameters"/> at generation/preview time.
         /// </summary>
-        public List<ReportParameter> Parameters { get; set; } = new()
-        {
-            new ReportParameter { Name = "@ProcessDate", SqlDataType = "char(8)", RdlcDataType = "String" },
-            new ReportParameter { Name = "@Siteid", SqlDataType = "int", RdlcDataType = "Integer" },
-            new ReportParameter { Name = "@BatchNo", SqlDataType = "varchar(max)", RdlcDataType = "String" },
-            new ReportParameter { Name = "@WorkSource", SqlDataType = "varchar(max)", RdlcDataType = "String" }
-        };
+        public List<ReportParameter> Parameters { get; set; } = new();
+
+        /// <summary>
+        /// Fully dynamic, user-defined parameters with prompt text and header mapping.
+        /// </summary>
+        public List<DynamicParameter> DynamicParameters { get; set; } = new();
 
         // â”€â”€ Step 4: Header & Footer Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         public string ReportTitle { get; set; } = string.Empty;
@@ -70,11 +70,9 @@ namespace AutoReportWizard.Models
         public string? HeaderJulianField { get; set; }
         public string? HeaderWorksourceField { get; set; }
         public string? HeaderLoadField { get; set; }
-        public string HeaderPageValue { get; set; } = "1 / 58";
-        public string HeaderBatchNumber { get; set; } = "3292";
-        public string StaticHeaderLeftLine1 { get; set; } = "Site : [Expr]";
-        public string StaticHeaderLeftLine2 { get; set; } = "Process : [Expr]";
 
+        public string StaticHeaderLeftLine1 { get; set; } = string.Empty;
+        public string StaticHeaderLeftLine2 { get; set; } = string.Empty;
         // â”€â”€ Step 5: Layout & Output â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         public string OutputDirectory { get; set; } =
             Path.Combine(
