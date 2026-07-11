@@ -1,9 +1,6 @@
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
-
 using AutoReportWizard.Models;
 using AutoReportWizard.ViewModels;
 
@@ -11,134 +8,76 @@ namespace AutoReportWizard.Views
 {
     public partial class Step5View : UserControl
     {
-        private Point _dragStartPoint;
-        private ReportField? _draggedItem;
-
         public Step5View()
         {
             InitializeComponent();
         }
 
-        // ── Drag-and-Drop ────────────────────────────────────────────────────
-        private void LayoutGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            _dragStartPoint = e.GetPosition(null);
-        }
-
-        private void LayoutGrid_PreviewMouseMove(object sender, MouseEventArgs e)
-        {
-            if (e.LeftButton != MouseButtonState.Pressed) return;
-
-            var diff = _dragStartPoint - e.GetPosition(null);
-
-            if (System.Math.Abs(diff.X) < SystemParameters.MinimumHorizontalDragDistance &&
-                System.Math.Abs(diff.Y) < SystemParameters.MinimumVerticalDragDistance)
-                return;
-
-            // Only initiate drag on a DataGridRow
-            var row = FindVisualParent<DataGridRow>((DependencyObject)e.OriginalSource);
-            if (row?.Item is not ReportField field) return;
-
-            // Don't initiate drag if user is editing a cell
-            if (LayoutGrid.CurrentColumn != null && LayoutGrid.IsEditing()) return;
-
-            _draggedItem = field;
-            DragDrop.DoDragDrop(row, new DataObject(typeof(ReportField), field), DragDropEffects.Move);
-            _draggedItem = null;
-        }
-
-        private void LayoutGrid_DragOver(object sender, DragEventArgs e)
-        {
-            if (!e.Data.GetDataPresent(typeof(ReportField)))
-            {
-                e.Effects = DragDropEffects.None;
-                e.Handled = true;
-                return;
-            }
-            e.Effects = DragDropEffects.Move;
-            e.Handled = true;
-        }
-
-        private void LayoutGrid_Drop(object sender, DragEventArgs e)
-        {
-            if (DataContext is not WizardViewModel vm) return;
-            if (!e.Data.GetDataPresent(typeof(ReportField))) return;
-
-            var droppedData = (ReportField)e.Data.GetData(typeof(ReportField));
-
-            // Find the target row under the cursor
-            var targetRow = FindVisualParent<DataGridRow>((DependencyObject)e.OriginalSource);
-            if (targetRow?.Item is not ReportField targetField || droppedData == targetField)
-                return;
-
-            int oldIdx = vm.Fields.IndexOf(droppedData);
-            int newIdx = vm.Fields.IndexOf(targetField);
-
-            if (oldIdx < 0 || newIdx < 0) return;
-
-            vm.Fields.Move(oldIdx, newIdx);
-            RefreshDisplayOrder(vm);
-        }
-
-        // ── Other Actions ────────────────────────────────────────────────────
-        private void RemoveField_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is not WizardViewModel vm || LayoutGrid.SelectedItem is not ReportField selectedField) return;
-            vm.Fields.Remove(selectedField);
-            RefreshDisplayOrder(vm);
-        }
+        // ── Toolbar Actions ───────────────────────────────────────────────────
 
         private void AddField_Click(object sender, RoutedEventArgs e)
         {
-            if (DataContext is not WizardViewModel vm) return;
-
-            string baseName = "NewField";
-            string uniqueName = baseName;
-            int counter = 1;
-            while (vm.Fields.Any(f => f.Name == uniqueName))
+            if (DataContext is WizardViewModel vm)
             {
-                uniqueName = $"{baseName}{counter++}";
+                var newField = new ReportField
+                {
+                    Name = $"NewField{vm.Fields.Count + 1}",
+                    CustomHeaderLabel = "New Field",
+                    SqlDataType = "varchar",
+                    DotNetType = "System.String",
+                    CanvasX = 16,
+                    CanvasY = 16,
+                    ItemWidth = 120,
+                    ItemHeight = 32,
+                    IsDetailField = true
+                };
+
+                vm.Fields.Add(newField);
+
+                // Auto-select the newly added field
+                foreach (var f in vm.Fields) f.IsSelected = false;
+                newField.IsSelected = true;
+                vm.SelectedField = newField;
             }
-
-            vm.Fields.Add(new ReportField
-            {
-                Name = uniqueName,
-                SqlDataType = "nvarchar",
-                DotNetType = "System.String",
-                IsDetailField = true
-            });
-
-            RefreshDisplayOrder(vm);
         }
 
-        // ── Helpers ──────────────────────────────────────────────────────────
-        private void RefreshDisplayOrder(WizardViewModel vm)
+        private void RemoveField_Click(object sender, RoutedEventArgs e)
         {
-            for (int i = 0; i < vm.Fields.Count; i++)
+            if (DataContext is WizardViewModel vm && vm.SelectedField != null)
             {
-                vm.Fields[i].DisplayOrder = i;
+                vm.Fields.Remove(vm.SelectedField);
+                vm.SelectedField = null;
             }
-            vm.SyncFieldsToReport();
         }
 
-        private static T? FindVisualParent<T>(DependencyObject child) where T : DependencyObject
-        {
-            while (child != null)
-            {
-                if (child is T parent)
-                    return parent;
-                child = VisualTreeHelper.GetParent(child);
-            }
-            return null;
-        }
-    }
+        // ── Canvas Interaction ────────────────────────────────────────────────
 
-    // Extension for checking DataGrid editing state
-    internal static class DataGridExtensions
-    {
-        public static bool IsEditing(this DataGrid grid)
+        private void DesignCanvasPaper_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            return grid.CommitEdit(DataGridEditingUnit.Row, true) == false;
+            // Clear selection if the user clicks the empty white paper area
+            if (DataContext is WizardViewModel vm)
+            {
+                foreach (var f in vm.Fields) f.IsSelected = false;
+                vm.SelectedField = null;
+            }
+        }
+
+        // Fixed Method Name to match the XAML
+        private void DesignerFieldItem_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.OriginalSource is FrameworkElement fe && fe.DataContext is ReportField field)
+            {
+                if (DataContext is WizardViewModel vm)
+                {
+                    // Deselect all others
+                    foreach (var f in vm.Fields) f.IsSelected = false;
+
+                    // Select the clicked item
+                    field.IsSelected = true;
+                    vm.SelectedField = field;
+                }
+                // Do NOT set e.Handled = true here, allowing the drag thumb to work
+            }
         }
     }
 }

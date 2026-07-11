@@ -1,0 +1,1 @@
+﻿Analyze our code context. We need to implement an exact Visual Studio Designer UI clone canvas. Provide the complete C# code implementation for a 'DesignerCanvas' class that supports: 1. Snap-to-grid alignment. 2. Elements multi-selection with bounding boxes. 3. Active resize boundary handles (North, South, East, West).

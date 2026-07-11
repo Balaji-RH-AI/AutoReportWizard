@@ -88,6 +88,71 @@ namespace AutoReportWizard.Models
             set { _isDetailField = value; OnPropertyChanged(); }
         }
 
+        // ─── VISUAL SELECTION & POSITIONING ────────────────────────────────
+        private bool _isSelected;
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set { _isSelected = value; OnPropertyChanged(); }
+        }
+
+        private double _canvasX = 16;
+        public double CanvasX
+        {
+            get => _canvasX;
+            set { _canvasX = value; OnPropertyChanged(); }
+        }
+
+        private double _canvasY = 16;
+        public double CanvasY
+        {
+            get => _canvasY;
+            set { _canvasY = value; OnPropertyChanged(); }
+        }
+
+        private double _itemWidth = 120;
+        public double ItemWidth
+        {
+            get => _itemWidth;
+            set { _itemWidth = value; OnPropertyChanged(); }
+        }
+
+        private double _itemHeight = 32;
+        public double ItemHeight
+        {
+            get => _itemHeight;
+            set { _itemHeight = value; OnPropertyChanged(); }
+        }
+
+        // ─── STYLING & MAPPING ─────────────────────────────────────────────
+        private string _textAlign = "Default";
+        public string TextAlign
+        {
+            get => _textAlign;
+            set { _textAlign = value; OnPropertyChanged(); }
+        }
+
+        private string _fontWeight = "Normal";
+        public string FontWeight
+        {
+            get => _fontWeight;
+            set { _fontWeight = value; OnPropertyChanged(); }
+        }
+
+        private string _borderColor = "#CCCCCC";
+        public string BorderColor
+        {
+            get => _borderColor;
+            set { _borderColor = value; OnPropertyChanged(); }
+        }
+
+        private string _customExpression = string.Empty;
+        public string CustomExpression
+        {
+            get => _customExpression;
+            set { _customExpression = value; OnPropertyChanged(); }
+        }
+
         public string SourceDatabase { get; set; } = string.Empty;
         public string SourceSchema { get; set; } = string.Empty;
         public string SourceTable { get; set; } = string.Empty;

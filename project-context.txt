@@ -1,0 +1,2665 @@
+﻿=== FILE: C:\WIZARDREPORT\AutoReportWizard\Models\DynamicParameter.cs ===
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+
+namespace AutoReportWizard.Models;
+
+/// <summary>
+/// User-defined report parameter with prompt text and optional header mapping.
+/// Flows through the wizard and into T-SQL, RDLC ReportParameters, and the preview UI.
+/// </summary>
+public class DynamicParameter : INotifyPropertyChanged
+{
+    private string _parameterName = string.Empty;
+    private string _dataType = "varchar(50)";
+    private string _promptText = string.Empty;
+    private string _value = string.Empty;
+    private bool _mapsToHeader;
+    private HeaderZone _headerZone = HeaderZone.Left;
+    private int _headerOrder;
+
+    /// <summary>SQL parameter name including @ prefix (e.g. @ProcessDate).</summary>
+    public string ParameterName
+    {
+        get => _parameterName;
+        set { _parameterName = value; OnPropertyChanged(); OnPropertyChanged(nameof(RdlcParameterName)); }
+    }
+
+    /// <summary>SQL data type declaration (e.g. char(8), int, varchar(max)).</summary>
+    public string DataType
+    {
+        get => _dataType;
+        set { _dataType = value; OnPropertyChanged(); OnPropertyChanged(nameof(RdlcDataType)); }
+    }
+
+    /// <summary>User-facing label shown in the preview parameter bar.</summary>
+    public string PromptText
+    {
+        get => _promptText;
+        set { _promptText = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Runtime value entered by the user before running preview.</summary>
+    public string Value
+    {
+        get => _value;
+        set { _value = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>When true, this parameter appears in the RDLC page header.</summary>
+    public bool MapsToHeader
+    {
+        get => _mapsToHeader;
+        set { _mapsToHeader = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Header zone placement (left, center, or right).</summary>
+    public HeaderZone HeaderZone
+    {
+        get => _headerZone;
+        set { _headerZone = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>Sort order within the header zone.</summary>
+    public int HeaderOrder
+    {
+        get => _headerOrder;
+        set { _headerOrder = value; OnPropertyChanged(); }
+    }
+
+    /// <summary>RDLC parameter name without the @ prefix.</summary>
+    public string RdlcParameterName =>
+        ParameterName.TrimStart('@');
+
+    /// <summary>SSRS ReportParameter DataType derived from SQL type.</summary>
+    public string RdlcDataType => MapSqlTypeToRdlc(DataType);
+
+    public static string MapSqlTypeToRdlc(string sqlDataType)
+    {
+        string typeName = sqlDataType;
+        int paren = typeName.IndexOf('(');
+        if (paren >= 0)
+            typeName = typeName[..paren];
+
+        return typeName.Trim().ToLowerInvariant() switch
+        {
+            "int" or "bigint" or "smallint" or "tinyint" => "Integer",
+            "bit" => "Boolean",
+            "date" or "datetime" or "datetime2" or "smalldatetime" => "DateTime",
+            "decimal" or "money" or "numeric" or "smallmoney" or "float" or "real" => "Float",
+            _ => "String"
+        };
+    }
+
+    /// <summary>Converts to legacy ReportParameter for database execution.</summary>
+    public ReportParameter ToReportParameter() => new()
+    {
+        Name = ParameterName.StartsWith('@') ? ParameterName : $"@{ParameterName}",
+        SqlDataType = DataType,
+        RdlcDataType = RdlcDataType,
+        Value = Value,
+        AllowBlank = true
+    };
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    protected void OnPropertyChanged([CallerMemberName] string? name = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+public enum HeaderZone
+{
+    Left,
+    Center,
+    Right
+}
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\Models\PageHeaderPreviewLine.cs ===
+namespace AutoReportWizard.Models;
+
+/// <summary>
+/// A single line in the Step 5 layout designer page-header preview.
+/// Built from dynamic parameters and dataset field mappings â€” no static mock text.
+/// </summary>
+public class PageHeaderPreviewLine
+{
+    public string DisplayText { get; set; } = string.Empty;
+    public HeaderZone Zone { get; set; } = HeaderZone.Left;
+}
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\Models\ReportDefinition.cs ===
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Xml.Linq;
+
+namespace AutoReportWizard.Models
+{
+    public enum AuthenticationType
+    {
+        Windows,
+        SqlServer
+    }
+
+    /// <summary>
+    /// Root report definition â€” the single source of truth that flows through
+    /// all 5 wizard steps and is consumed directly by SqlGeneratorService
+    /// and RdlcXmlEngine. No JSON serialization at any boundary.
+    /// </summary>
+    public class ReportDefinition
+    {
+        // â”€â”€ Step 1: Target Environment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public string ServerName { get; set; } = string.Empty;
+        public string DatabaseName { get; set; } = "master";
+        public AuthenticationType AuthType { get; set; } = AuthenticationType.Windows;
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+
+        // â”€â”€ Step 2: Dataset Definition â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public string SchemaName { get; set; } = "dbo";
+        public string TableOrViewName { get; set; } = string.Empty;
+        public string ReportName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// All fields in the report. Each field carries its SQL type,
+        /// .NET type, aggregation settings, and layout flags.
+        /// </summary>
+        public List<ReportField> Fields { get; set; } = new();
+        /// <summary>
+        /// Visually configured table joins for the template-driven SQL builder.
+        /// </summary>
+        public List<TableJoin> Joins { get; set; } = new();
+        /// <summary>
+        /// Stores the raw, user-edited T-SQL from the Step 3 Live Editor.
+        /// </summary>
+        public string CustomSql { get; set; } = string.Empty;
+        public string PreQueryLogic { get; set; } = string.Empty;
+        public string CustomWhereClause { get; set; } = string.Empty;
+
+        /// <summary>
+        /// User-defined input parameters for the Stored Procedure and RDLC file.
+        /// Synced from <see cref="DynamicParameters"/> at generation/preview time.
+        /// </summary>
+        public List<ReportParameter> Parameters { get; set; } = new();
+
+        /// <summary>
+        /// Fully dynamic, user-defined parameters with prompt text and header mapping.
+        /// </summary>
+        public List<DynamicParameter> DynamicParameters { get; set; } = new();
+
+        // â”€â”€ Step 4: Header & Footer Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public string ReportTitle { get; set; } = string.Empty;
+        public string ReportSubtitle { get; set; } = string.Empty;
+        public bool IncludeExecutionTime { get; set; } = true;
+        public bool IncludePageNumbers { get; set; } = true;
+        public bool IncludeGrandTotals { get; set; }
+        public string? DynamicHeaderFieldName { get; set; }
+        public string? HeaderSiteField { get; set; }
+        public string? HeaderProcessDateField { get; set; }
+        public string? HeaderJulianField { get; set; }
+        public string? HeaderWorksourceField { get; set; }
+        public string? HeaderLoadField { get; set; }
+
+        public string StaticHeaderLeftLine1 { get; set; } = string.Empty;
+        public string StaticHeaderLeftLine2 { get; set; } = string.Empty;
+        // â”€â”€ Step 5: Layout & Output â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public string OutputDirectory { get; set; } =
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                "AutoReportWizard");
+
+        private bool _dbInfoLoadAttempted;
+
+        // â”€â”€ Derived Properties â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public string StoredProcName =>
+            "sp_" + System.Text.RegularExpressions.Regex.Replace(ReportName, @"[^A-Za-z0-9_]", "_");
+
+        /// <summary>
+        /// Fully qualified connection string built dynamically based on selected AuthType.
+        /// </summary>
+        public string BuildConnectionString()
+        {
+            var builder = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder
+            {
+                DataSource = ServerName,
+                InitialCatalog = DatabaseName,
+                TrustServerCertificate = true,
+                ConnectTimeout = 15,     // Fail faster if the server is unreachable
+                MinPoolSize = 1,
+                MaxPoolSize = 300,       // Matches your DBInfo.xml setting to prevent pool exhaustion
+                Pooling = true
+            };
+
+            if (AuthType == AuthenticationType.Windows)
+            {
+                builder.IntegratedSecurity = true;
+            }
+            else
+            {
+                builder.IntegratedSecurity = false;
+                builder.UserID = Username;
+                builder.Password = Password;
+            }
+
+            return builder.ConnectionString;
+        }
+
+        // â”€â”€ Guardrail Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public bool LoadDbInfoConfiguration(string? dbInfoPath = null)
+        {
+            if (_dbInfoLoadAttempted && string.IsNullOrWhiteSpace(dbInfoPath))
+                return false;
+
+            _dbInfoLoadAttempted = true;
+
+            string? resolvedPath = ResolveDbInfoPath(dbInfoPath);
+            if (resolvedPath is null)
+                return false;
+
+            var document = XDocument.Load(resolvedPath);
+            var dbAccess = document.Descendants()
+                .FirstOrDefault(e => IsElement(e, "DBACCESS"));
+            var common = (dbAccess ?? document.Root)?.Descendants()
+                .FirstOrDefault(e => IsElement(e, "COMMON"));
+
+            if (common is null)
+                return false;
+
+            string? server = ReadSetting(common, dbAccess,
+                "ServerName", "Server", "DataSource", "SqlServer", "DbServer", "DB_SERVER");
+            string? database = ReadSetting(common, dbAccess,
+                "DatabaseName", "Database", "InitialCatalog", "Catalog", "DbName", "DB_NAME");
+            string? username = ReadSetting(common, dbAccess,
+                "Username", "UserName", "UserId", "UserID", "Uid", "User", "DbUser");
+            string? encryptedPassword = ReadSetting(common, dbAccess,
+                "EncryptedPassword", "PasswordEncrypted", "PwdEncrypted", "DBPASSWORD");
+            string? password = encryptedPassword is null
+                ? ReadSetting(common, dbAccess, "Password", "Pwd")
+                : DecryptPassword(encryptedPassword);
+            string? auth = ReadSetting(common, dbAccess,
+                "Authentication", "AuthType", "IntegratedSecurity", "TrustedConnection");
+
+            if (!string.IsNullOrWhiteSpace(server))
+                ServerName = server.Trim();
+            if (!string.IsNullOrWhiteSpace(database))
+                DatabaseName = database.Trim();
+            if (!string.IsNullOrWhiteSpace(username))
+                Username = username.Trim();
+            if (password is not null)
+                Password = password;
+
+            AuthType = ShouldUseSqlAuthentication(auth, Username)
+                ? AuthenticationType.SqlServer
+                : AuthenticationType.Windows;
+
+            return true;
+        }
+
+        public static string DecryptPassword(string encryptedPassword)
+        {
+            if (string.IsNullOrWhiteSpace(encryptedPassword))
+                return string.Empty;
+
+            try
+            {
+                // Decode the Base64 password from DBInfo.xml
+                byte[] data = Convert.FromBase64String(encryptedPassword);
+                return System.Text.Encoding.UTF8.GetString(data);
+            }
+            catch
+            {
+                // Fallback to the raw string if it fails to parse
+                return encryptedPassword;
+            }
+        }
+        private static bool ShouldUseSqlAuthentication(string? auth, string username)
+        {
+            if (!string.IsNullOrWhiteSpace(auth))
+            {
+                string normalized = auth.Trim().ToLowerInvariant();
+                if (normalized is "sql" or "sqlserver" or "sql server" or "false" or "0")
+                    return true;
+                if (normalized is "windows" or "integrated" or "integratedsecurity" or "true" or "1")
+                    return false;
+            }
+
+            return !string.IsNullOrWhiteSpace(username);
+        }
+
+        private static string? ResolveDbInfoPath(string? dbInfoPath)
+        {
+            if (!string.IsNullOrWhiteSpace(dbInfoPath))
+                return File.Exists(dbInfoPath) ? dbInfoPath : null;
+
+            var candidates = new List<string>
+            {
+                Path.Combine(AppContext.BaseDirectory, "DBInfo.xml"),
+                Path.Combine(Environment.CurrentDirectory, "DBInfo.xml")
+            };
+
+            var directory = new DirectoryInfo(AppContext.BaseDirectory);
+            for (int i = 0; i < 6 && directory is not null; i++, directory = directory.Parent)
+                candidates.Add(Path.Combine(directory.FullName, "DBInfo.xml"));
+
+            return candidates.FirstOrDefault(File.Exists);
+        }
+
+        private static string? ReadSetting(XElement common, XElement? dbAccess, params string[] names)
+        {
+            foreach (string name in names)
+            {
+                string? value = common.Elements()
+                    .FirstOrDefault(e => IsElement(e, name))
+                    ?.Value;
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+
+                value = common.Attributes()
+                    .FirstOrDefault(a => IsName(a.Name.LocalName, name))
+                    ?.Value;
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+
+                value = dbAccess?.Attributes()
+                    .FirstOrDefault(a => IsName(a.Name.LocalName, name))
+                    ?.Value;
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+
+            return null;
+        }
+
+        private static bool IsElement(XElement element, string name) =>
+            IsName(element.Name.LocalName, name);
+
+        private static bool IsName(string actual, string expected) =>
+            string.Equals(
+                actual.Replace("_", string.Empty),
+                expected.Replace("_", string.Empty),
+                StringComparison.OrdinalIgnoreCase);
+
+        public const int SchemaTimeoutSeconds = 60;
+        public const int MaxDbRetries = 3;
+    }
+}
+
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\Models\ReportField.cs ===
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+
+namespace AutoReportWizard.Models
+{
+    /// <summary>
+    /// Canonical aggregate functions supported by the T-SQL generator.
+    /// </summary>
+    public enum AggregateFunction
+    {
+        None,
+        SUM,
+        COUNT,
+        AVG,
+        MAX,
+        MIN
+    }
+
+    /// <summary>
+    /// Represents a single column in the report dataset.
+    /// This is the strongly-typed contract that flows through every step
+    /// of the wizard and is consumed directly by the generation engines â€”
+    /// no JSON serialization required.
+    /// </summary>
+    public class ReportField : INotifyPropertyChanged
+    {
+        private string _name = string.Empty;
+        private string _sqlDataType = "nvarchar";
+        private string _dotNetType = "System.String";
+        private bool _isGroupBy;
+        private AggregateFunction _aggregate = AggregateFunction.None;
+        private bool _isDetailField = true;
+        private int _displayOrder;
+        private string _customHeaderLabel = string.Empty;
+        private double _columnWidth;
+
+        /// <summary>Raw column name as it appears in SQL Server (e.g. "SalesAmount").</summary>
+        public string Name
+        {
+            get => _name;
+            set { _name = value; OnPropertyChanged(); OnPropertyChanged(nameof(DisplayHeaderLabel)); }
+        }
+
+        /// <summary>
+        /// SQL data type name from sys.types (e.g. "nvarchar", "int", "decimal").
+        /// Populated automatically by schema discovery or set to "nvarchar" for manual entries.
+        /// </summary>
+        public string SqlDataType
+        {
+            get => _sqlDataType;
+            set { _sqlDataType = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>
+        /// Fully-qualified .NET System.Type name derived from SqlDataType
+        /// (e.g. "System.String", "System.Int32", "System.Decimal").
+        /// Written verbatim into the RDLC &lt;Field TypeName=""&gt; attribute.
+        /// </summary>
+        public string DotNetType
+        {
+            get => _dotNetType;
+            set { _dotNetType = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>When true, this field is added to the GROUP BY clause.</summary>
+        public bool IsGroupBy
+        {
+            get => _isGroupBy;
+            set { _isGroupBy = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>
+        /// The aggregate function to apply. Must be None when IsGroupBy is true.
+        /// Mutually exclusive with IsGroupBy.
+        /// </summary>
+        public AggregateFunction Aggregate
+        {
+            get => _aggregate;
+            set { _aggregate = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>
+        /// When true, this field appears in the Tablix detail rows of the RDLC report.
+        /// </summary>
+        public bool IsDetailField
+        {
+            get => _isDetailField;
+            set { _isDetailField = value; OnPropertyChanged(); }
+        }
+
+        // â”€â”€â”€ VISUAL SELECTION & POSITIONING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        private bool _isSelected;
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set { _isSelected = value; OnPropertyChanged(); }
+        }
+
+        private double _canvasX = 16;
+        public double CanvasX
+        {
+            get => _canvasX;
+            set { _canvasX = value; OnPropertyChanged(); }
+        }
+
+        private double _canvasY = 16;
+        public double CanvasY
+        {
+            get => _canvasY;
+            set { _canvasY = value; OnPropertyChanged(); }
+        }
+
+        private double _itemWidth = 120;
+        public double ItemWidth
+        {
+            get => _itemWidth;
+            set { _itemWidth = value; OnPropertyChanged(); }
+        }
+
+        private double _itemHeight = 32;
+        public double ItemHeight
+        {
+            get => _itemHeight;
+            set { _itemHeight = value; OnPropertyChanged(); }
+        }
+
+        // â”€â”€â”€ STYLING & MAPPING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        private string _textAlign = "Default";
+        public string TextAlign
+        {
+            get => _textAlign;
+            set { _textAlign = value; OnPropertyChanged(); }
+        }
+
+        private string _fontWeight = "Normal";
+        public string FontWeight
+        {
+            get => _fontWeight;
+            set { _fontWeight = value; OnPropertyChanged(); }
+        }
+
+        private string _borderColor = "#CCCCCC";
+        public string BorderColor
+        {
+            get => _borderColor;
+            set { _borderColor = value; OnPropertyChanged(); }
+        }
+
+        private string _customExpression = string.Empty;
+        public string CustomExpression
+        {
+            get => _customExpression;
+            set { _customExpression = value; OnPropertyChanged(); }
+        }
+
+        public string SourceDatabase { get; set; } = string.Empty;
+        public string SourceSchema { get; set; } = string.Empty;
+        public string SourceTable { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Zero-based display order within the Tablix column set.
+        /// Used to calculate relative column widths and column ordering.
+        /// </summary>
+        public int DisplayOrder
+        {
+            get => _displayOrder;
+            set { _displayOrder = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>
+        /// Custom column header label shown in the RDLC Tablix header row.
+        /// When empty, the dataset field name is used.
+        /// </summary>
+        public string CustomHeaderLabel
+        {
+            get => _customHeaderLabel;
+            set { _customHeaderLabel = value; OnPropertyChanged(); OnPropertyChanged(nameof(DisplayHeaderLabel)); }
+        }
+
+        /// <summary>
+        /// Column width in inches for the RDLC Tablix. Zero means auto-equal split.
+        /// </summary>
+        public double ColumnWidth
+        {
+            get => _columnWidth;
+            set { _columnWidth = value; OnPropertyChanged(); }
+        }
+
+        /// <summary>Resolved header text for layout preview and RDLC generation.</summary>
+        public string DisplayHeaderLabel =>
+            string.IsNullOrWhiteSpace(CustomHeaderLabel) ? GetDatasetFieldName() : CustomHeaderLabel;
+
+        /// <summary>
+        /// Builds the [Database].[Schema].[Table].[Column] string.
+        /// </summary>
+        public string GetFullyQualifiedName()
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            if (!string.IsNullOrEmpty(SourceTable)) parts.Add(QuoteName(SourceTable));
+
+            parts.Add(QuoteName(Name));
+            return string.Join(".", parts);
+        }
+
+        /// <summary>
+        /// Returns the aliased column expression used in the SELECT list.
+        /// e.g. "SUM([DB].[dbo].[Table].[SalesAmount]) AS [SalesAmount_SUM]"
+        /// </summary>
+        public string GetSelectExpression()
+        {
+            string fqn = GetFullyQualifiedName();
+
+            if (IsGroupBy || Aggregate == AggregateFunction.None)
+                return $"{fqn} AS {QuoteName(Name)}";
+
+            return $"{Aggregate}({fqn}) AS {QuoteName($"{Name}_{Aggregate}")}";
+        }
+
+        /// <summary>
+        /// The field name as it will appear in the RDLC dataset field list.
+        /// Matches the alias produced by GetSelectExpression().
+        /// </summary>
+        public string GetDatasetFieldName()
+        {
+            if (IsGroupBy || Aggregate == AggregateFunction.None)
+                return Name;
+            return $"{Name}_{Aggregate}";
+        }
+
+        /// <summary>C# equivalent of T-SQL QUOTENAME() â€” wraps identifier in brackets.</summary>
+        private static string QuoteName(string identifier) =>
+            "[" + identifier.Replace("]", "]]") + "]";
+
+        public override string ToString() => Name;
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected void OnPropertyChanged([CallerMemberName] string? name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+}
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\Models\ReportParameter.cs ===
+namespace AutoReportWizard.Models
+{
+    public class ReportParameter
+    {
+        public string Name { get; set; } = string.Empty;
+        public string SqlDataType { get; set; } = "varchar(50)";
+        public string RdlcDataType { get; set; } = "String";
+        public string Value { get; set; } = string.Empty;
+        public bool IsHidden { get; set; } = false;
+        public bool AllowBlank { get; set; } = true;
+    }
+}
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\Models\TablesJoin.cs ===
+namespace AutoReportWizard.Models
+{
+    /// <summary>
+    /// Represents an inner or left join mapping for the template-driven SQL generator.
+    /// </summary>
+    public class TableJoin
+    {
+        public string PrimaryTable { get; set; } = string.Empty;
+        public string PrimaryColumn { get; set; } = string.Empty;
+
+        public string JoinedTable { get; set; } = string.Empty;
+        public string JoinedColumn { get; set; } = string.Empty;
+
+        public string GetJoinExpression(string databaseName, string schemaName)
+        {
+            return $"INNER JOIN [{databaseName}].[{schemaName}].[{JoinedTable}] AS [{JoinedTable}] ON [{PrimaryTable}].[{PrimaryColumn}] = [{JoinedTable}].[{JoinedColumn}]";
+        }
+    }
+}
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\Services\DatabaseService.cs ===
+using System.Data;
+using Microsoft.Data.SqlClient;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using AutoReportWizard.Models;
+
+public async Task<List<ReportField>> ImportStoredProcedureSchemaAsync(string connectionString, string spName, Dictionary<string, object> testParameters)
+{
+    var fields = new List<ReportField>();
+
+    using var connection = new SqlConnection(connectionString);
+    await connection.OpenAsync();
+
+    using var cmd = new SqlCommand(spName, connection);
+    cmd.CommandType = CommandType.StoredProcedure;
+
+    // Inject the test parameters so the SP can execute successfully
+    foreach (var param in testParameters)
+    {
+        cmd.Parameters.AddWithValue(param.Key, param.Value ?? DBNull.Value);
+    }
+
+    // Execute the SP and capture the output shape
+    using var reader = await cmd.ExecuteReaderAsync();
+
+    // Read the column schema directly from the execution result
+    var schemaTable = reader.GetSchemaTable();
+
+    if (schemaTable != null)
+    {
+        int displayOrder = 0;
+        foreach (DataRow row in schemaTable.Rows)
+        {
+            string columnName = row["ColumnName"].ToString() ?? string.Empty;
+            string dataType = row["DataType"]?.ToString() ?? "System.String";
+
+            fields.Add(new ReportField
+            {
+                Name = columnName, // This will instantly capture your alias (e.g., 'BatchNum')
+                DotNetType = dataType,
+                IsDetailField = true,
+                DisplayOrder = displayOrder++,
+                // Grid-snapped defaults for the Canvas
+                ItemWidth = 120,
+                ItemHeight = 32,
+                CanvasX = 16,
+                CanvasY = 16,
+                TextAlign = "Default",
+                FontWeight = "Normal",
+                BorderColor = "LightGrey",
+                BackgroundColor = "Transparent"
+            });
+        }
+    }
+
+    return fields;
+}
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\Services\RdlcValidationService.cs ===
+using System.Reflection;
+using System.Xml;
+using System.Xml.Linq;
+using System.Xml.Schema;
+
+namespace AutoReportWizard.Services
+{
+    /// <summary>
+    /// Validates a generated RDLC XDocument against the official SSRS 2016
+    /// XSD schema stored as an embedded resource.
+    ///
+    /// Uses XmlSchemaSet + XDocument.Validate() â€” strictly typed, no regex heuristics.
+    /// All schema violations are collected and returned before any file is written.
+    /// </summary>
+    public class RdlcValidationService
+    {
+        private const string SchemaResourceName =
+            "AutoReportWizard.Resources.ReportDefinition.xsd";
+
+        private const string RdlNamespace =
+            "http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition";
+
+        /// <summary>
+        /// Result of an RDLC validation pass.
+        /// </summary>
+        public record RdlcValidationResult(
+            bool IsValid,
+            IReadOnlyList<string> Violations);
+
+        private XmlSchemaSet? _schemaSet;
+
+        /// <summary>
+        /// Validates the given XDocument against the SSRS 2016 XSD schema.
+        /// </summary>
+        public RdlcValidationResult Validate(XDocument document)
+        {
+            var violations = new List<string>();
+
+            try
+            {
+                var schemas = GetOrLoadSchemas();
+                document.Validate(schemas, (_, args) =>
+                {
+                    // Collect all violations rather than stopping at first error
+                    violations.Add($"[{args.Severity}] Line {args.Exception?.LineNumber}: {args.Message}");
+                });
+            }
+            catch (XmlSchemaException ex)
+            {
+                violations.Add($"[Schema Load Error] {ex.Message}");
+            }
+            catch (XmlException ex)
+            {
+                violations.Add($"[XML Parse Error] {ex.Message}");
+            }
+
+            return new RdlcValidationResult(violations.Count == 0, violations);
+        }
+
+        // â”€â”€ Schema Loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+        private XmlSchemaSet GetOrLoadSchemas()
+        {
+            if (_schemaSet is not null) return _schemaSet;
+
+            _schemaSet = new XmlSchemaSet();
+
+            var assembly = Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream(SchemaResourceName);
+
+            if (stream is null)
+            {
+                // XSD not embedded â€” return empty schema set (validation will be skipped gracefully)
+                // This happens in dev environments before the XSD is added to Resources/
+                return _schemaSet;
+            }
+
+            using var reader = XmlReader.Create(stream);
+            _schemaSet.Add(RdlNamespace, reader);
+            _schemaSet.Compile();
+
+            return _schemaSet;
+        }
+    }
+}
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\Services\RdlcXmlEngine.cs ===
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Xml.Linq;
+using AutoReportWizard.Models;
+
+namespace AutoReportWizard.Services
+{
+    /// <summary>
+    /// Programmatically builds an RDLC 2016 report definition (ReportViewerCore.WinForms /
+    /// VS2019+ designer schema, xmlns "â€¦/2016/01/reportdefinition") entirely from a
+    /// <see cref="ReportDefinition"/> instance. No static/mock markup â€” every Textbox value
+    /// is either a live <c>Fields!</c>/<c>Parameters!</c>/<c>Globals!</c> expression or a piece
+    /// of literal text the user actually configured in the wizard (report title, static header
+    /// lines, parameter prompt text).
+    ///
+    /// IMPLEMENTATION NOTES / ASSUMPTIONS (please read before wiring this in):
+    ///
+    /// 1. Schema element order. RDL is a strict XSD sequence â€” children must appear in the
+    ///    order the schema declares, or ReportViewer will throw "The definition of the report
+    ///    is not valid." This class follows the ordering used by real Visual Studioâ€“generated
+    ///    .rdlc files: item-specific content first (e.g. Paragraphs for a Textbox, TablixBody/
+    ///    TablixColumnHierarchy/TablixRowHierarchy for a Tablix), then position/size
+    ///    (Top/Left/Height/Width/ZIndex), then Style. No .NET/schema tooling was available in
+    ///    the environment this was written in to compile- or schema-validate the output, so
+    ///    please open the generated file in the RDLC designer (or run it through
+    ///    ReportViewerCore.WinForms once) before shipping.
+    ///
+    /// 2. Spanned/merged cells (the "BATCH NBR : 3292" band that stretches across every
+    ///    column). RDL Tablix cells don't have a ColSpan attribute â€” a spanned cell is
+    ///    represented by repeating an IDENTICAL Textbox definition in every TablixCell of that
+    ///    row; the renderer detects the duplicate content across adjacent cells and merges
+    ///    them visually into a single band. <see cref="BuildSpannedRow"/> implements that by
+    ///    cloning the same Textbox element into each cell.
+    ///
+    /// 3. Tablix row/column hierarchy. Every TablixMember that has no nested TablixMembers
+    ///    maps to exactly one TablixRow, in document order. Members that DO have nested
+    ///    TablixMembers are pure grouping nodes and don't themselves produce a row. The row
+    ///    hierarchy built here is:
+    ///       [ static: column-header row ]
+    ///       [ dynamic: group member for the 1st IsGroupBy field
+    ///           [ static: group header row ("BATCH NBR : â€¦", spanned) ]
+    ///           [ dynamic: next group level, or the Details group + one detail row ]
+    ///       ]
+    ///       [ static: grand-totals row ]  (only if IncludeGrandTotals)
+    ///    Multiple IsGroupBy fields nest recursively in DisplayOrder.
+    ///
+    /// 4. Local processing mode. Since this targets ReportViewerCore.WinForms hosted locally
+    ///    (no report server), the DataSource's ConnectionProperties are design-time metadata
+    ///    only â€” actual rows are supplied at runtime via
+    ///    <c>LocalReport.DataSources.Add(new ReportDataSource("MainDataSet", table))</c> using
+    ///    the DataTable your SqlGeneratorService returns. The DataSet's Fields must match that
+    ///    table's column names, which is why they're derived from
+    ///    <see cref="ReportField.GetDatasetFieldName"/> â€” the exact same alias
+    ///    <see cref="ReportField.GetSelectExpression"/> produces in the generated T-SQL.
+    /// </summary>
+    public static class RdlcXmlEngine
+    {
+        private static readonly XNamespace Rdl =
+            "http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition";
+        private static readonly XNamespace Rd =
+            "http://schemas.microsoft.com/SQLServer/reporting/reportdesigner";
+
+        // Overall canvas â€” tuned for a wide, many-column detail grid like the Batch Detail
+        // Report. Adjust freely; everything downstream (column widths, header zone widths)
+        // is computed relative to these.
+        private const double PageWidthIn = 14.0;
+        private const double PageHeightIn = 8.5;
+        private const double MarginIn = 0.25;
+        private const double TablixTotalWidthIn = PageWidthIn - (2 * MarginIn);
+
+        private const string GridLineColor = "LightGrey";
+        private const double DefaultRowHeightIn = 0.20;
+        private const double HeaderRowHeightIn = 0.25;
+        private const double SpannedRowHeightIn = 0.22;
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // Entry point
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+        /// <summary>Builds the full RDLC XDocument for the given report definition.</summary>
+        public static XDocument GenerateRdlcXml(ReportDefinition definition)
+        {
+            if (definition is null) throw new ArgumentNullException(nameof(definition));
+            if (definition.Fields is null || definition.Fields.Count == 0)
+                throw new InvalidOperationException(
+                    "ReportDefinition.Fields must be populated (Step 2) before RDLC generation.");
+            if (!definition.Fields.Any(f => f.IsDetailField))
+                throw new InvalidOperationException(
+                    "At least one ReportField must have IsDetailField = true to form the Tablix column set.");
+
+            var body = BuildBody(definition, out double reportSectionWidthIn);
+            var pageHeader = BuildPageHeader(definition);
+            var pageFooter = BuildPageFooter(definition);
+
+            var page = new XElement(Rdl + "Page",
+                pageHeader,
+                pageFooter,
+                new XElement(Rdl + "PageHeight", In(PageHeightIn)),
+                new XElement(Rdl + "PageWidth", In(PageWidthIn)),
+                new XElement(Rdl + "LeftMargin", In(MarginIn)),
+                new XElement(Rdl + "RightMargin", In(MarginIn)),
+                new XElement(Rdl + "TopMargin", In(MarginIn)),
+                new XElement(Rdl + "BottomMargin", In(MarginIn)),
+                new XElement(Rdl + "ColumnSpacing", "0.13in"));
+
+            var reportSection = new XElement(Rdl + "ReportSection",
+                body,
+                new XElement(Rdl + "Width", In(reportSectionWidthIn)),
+                page);
+
+            var report = new XElement(Rdl + "Report",
+                new XAttribute(XNamespace.Xmlns + "rd", Rd.NamespaceName),
+                new XAttribute("Name", SanitizeIdentifier(definition.ReportName)),
+                BuildDataSources(definition),
+                BuildDataSets(definition),
+                new XElement(Rdl + "ReportSections", reportSection),
+                BuildReportParametersXml(definition),
+                new XElement(Rdl + "Language", "en-US"));
+
+            return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), report);
+        }
+
+        /// <summary>Convenience overload: generates and saves the .rdlc file to disk.</summary>
+        public static void GenerateRdlcFile(ReportDefinition definition, string outputPath)
+        {
+            var doc = GenerateRdlcXml(definition);
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+            using var writer = new StreamWriter(outputPath, false, System.Text.Encoding.UTF8);
+            doc.Save(writer);
+        }
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // DataSources / DataSets
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+        private static XElement BuildDataSources(ReportDefinition definition) =>
+            new XElement(Rdl + "DataSources",
+                new XElement(Rdl + "DataSource",
+                    new XAttribute("Name", "MainDataSource"),
+                    new XElement(Rdl + "ConnectionProperties",
+                        new XElement(Rdl + "DataProvider", "SQL"),
+                        new XElement(Rdl + "ConnectString",
+                            $"Data Source={Escape(definition.ServerName)};Initial Catalog={Escape(definition.DatabaseName)}")),
+                    new XElement(Rd + "DataSourceID", Guid.NewGuid().ToString())));
+
+        private static XElement BuildDataSets(ReportDefinition definition)
+        {
+            // Include every field that shows up either as a Tablix column or as a grouping
+            // key â€” both need a matching entry so `Fields!X.Value` resolves at render time.
+            var fields = definition.Fields
+                .Where(f => f.IsDetailField || f.IsGroupBy)
+                .OrderBy(f => f.DisplayOrder)
+                .Select(f =>
+                {
+                    string alias = SanitizeIdentifier(f.GetDatasetFieldName());
+                    return new XElement(Rdl + "Field",
+                        new XAttribute("Name", alias),
+                        new XElement(Rdl + "DataField", f.GetDatasetFieldName()),
+                        new XElement(Rd + "TypeName", string.IsNullOrWhiteSpace(f.DotNetType) ? "System.String" : f.DotNetType));
+                });
+
+            string commandText = string.IsNullOrWhiteSpace(definition.CustomSql)
+                ? "-- Populated by SqlGeneratorService at generation time; the DataSet's Fields\n-- below are what matter for local rendering â€” see LocalReport.DataSources at runtime."
+                : definition.CustomSql;
+
+            return new XElement(Rdl + "DataSets",
+                new XElement(Rdl + "DataSet",
+                    new XAttribute("Name", "MainDataSet"),
+                    new XElement(Rdl + "Query",
+                        new XElement(Rdl + "DataSourceName", "MainDataSource"),
+                        new XElement(Rdl + "CommandText", commandText)),
+                    new XElement(Rdl + "Fields", fields)));
+        }
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // ReportParameters (Step: Parameter binding requirement)
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+        private static XElement BuildReportParametersXml(ReportDefinition definition)
+        {
+            // Parameters is meant to be synced from DynamicParameters before generation
+            // (see ReportDefinition's doc comment) â€” but fall back to deriving it here so
+            // this engine still works if that sync step hasn't run yet.
+            var sourceParams = definition.Parameters is { Count: > 0 }
+                ? definition.Parameters
+                : definition.DynamicParameters.Select(dp => dp.ToReportParameter()).ToList();
+
+            var dynamicByName = definition.DynamicParameters
+                .GroupBy(p => NormalizeParamName(p.ParameterName), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            var parameterElements = sourceParams.Select(rp =>
+            {
+                string rdlcName = NormalizeParamName(rp.Name);
+                dynamicByName.TryGetValue(rdlcName, out var dyn);
+                string prompt = !string.IsNullOrWhiteSpace(dyn?.PromptText) ? dyn!.PromptText : rdlcName;
+
+                return new XElement(Rdl + "ReportParameter",
+                    new XAttribute("Name", rdlcName),
+                    new XElement(Rdl + "DataType", string.IsNullOrWhiteSpace(rp.RdlcDataType) ? "String" : rp.RdlcDataType),
+                    rp.IsHidden ? new XElement(Rdl + "Hidden", "true") : null,
+                    new XElement(Rdl + "AllowBlank", rp.AllowBlank ? "true" : "false"),
+                    new XElement(Rdl + "Prompt", prompt));
+            });
+
+            return new XElement(Rdl + "ReportParameters", parameterElements);
+        }
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // Page Header â€” Left / Center / Right zones
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+        private static XElement BuildPageHeader(ReportDefinition definition)
+        {
+            double leftZoneLeftIn = MarginIn;
+            double leftZoneWidthIn = TablixTotalWidthIn * 0.30;
+            double centerZoneLeftIn = leftZoneLeftIn + leftZoneWidthIn + 0.1;
+            double centerZoneWidthIn = TablixTotalWidthIn * 0.40;
+            double rightZoneLeftIn = centerZoneLeftIn + centerZoneWidthIn + 0.1;
+            double rightZoneWidthIn = TablixTotalWidthIn - (rightZoneLeftIn - leftZoneLeftIn);
+
+            var items = new List<XElement>();
+
+            var leftParams = definition.DynamicParameters
+                .Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Left)
+                .OrderBy(p => p.HeaderOrder).ToList();
+            var centerParams = definition.DynamicParameters
+                .Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Center)
+                .OrderBy(p => p.HeaderOrder).ToList();
+            var rightParams = definition.DynamicParameters
+                .Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Right)
+                .OrderBy(p => p.HeaderOrder).ToList();
+
+            // â”€â”€ Left zone: optional static letterhead lines first, then dynamic "Label : @Param" lines â”€â”€
+            var leftLines = new List<string>();
+            if (!string.IsNullOrWhiteSpace(definition.StaticHeaderLeftLine1)) leftLines.Add(Literal(definition.StaticHeaderLeftLine1));
+            if (!string.IsNullOrWhiteSpace(definition.StaticHeaderLeftLine2)) leftLines.Add(Literal(definition.StaticHeaderLeftLine2));
+            foreach (var p in leftParams) leftLines.Add(LabelledParamExpr(p.PromptText, p.RdlcParameterName));
+
+            double leftY = 0.05;
+            for (int i = 0; i < leftLines.Count; i++)
+            {
+                items.Add(BuildTextbox($"HdrLeft_{i}", leftLines[i], bold: true, align: "Left", fontSize: "9pt",
+                    top: In(leftY), left: In(leftZoneLeftIn), width: In(leftZoneWidthIn), height: In(0.20)));
+                leftY += 0.22;
+            }
+
+            // â”€â”€ Center zone: Report Title (line 1, large/bold), Subtitle line(s), then any center-mapped params â”€â”€
+            double centerY = 0.05;
+            if (!string.IsNullOrWhiteSpace(definition.ReportTitle))
+            {
+                items.Add(BuildTextbox("HdrCenter_Title", Literal(definition.ReportTitle), bold: true, align: "Center", fontSize: "16pt",
+                    top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.30)));
+                centerY += 0.32;
+            }
+            if (!string.IsNullOrWhiteSpace(definition.ReportSubtitle))
+            {
+                // ReportDefinition only exposes a single ReportSubtitle string. If you need more
+                // than one subtitle line as a first-class field (rather than newline-delimited,
+                // as done here), consider adding a `List<string> ReportSubtitleLines` to
+                // ReportDefinition â€” this split is a pragmatic bridge until then.
+                var subtitleLines = definition.ReportSubtitle
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                for (int i = 0; i < subtitleLines.Length; i++)
+                {
+                    items.Add(BuildTextbox($"HdrCenter_Subtitle_{i}", Literal(subtitleLines[i]), bold: true, align: "Center", fontSize: "11pt",
+                        top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.22)));
+                    centerY += 0.22;
+                }
+            }
+            foreach (var p in centerParams)
+            {
+                items.Add(BuildTextbox($"HdrCenter_{SanitizeIdentifier(p.RdlcParameterName)}", LabelledParamExpr(p.PromptText, p.RdlcParameterName),
+                    bold: true, align: "Center", fontSize: "9pt",
+                    top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.20)));
+                centerY += 0.22;
+            }
+
+            // â”€â”€ Right zone: dynamic "Label : @Param" lines, then built-in Page X / Y â”€â”€
+            double rightY = 0.05;
+            foreach (var p in rightParams)
+            {
+                items.Add(BuildTextbox($"HdrRight_{SanitizeIdentifier(p.RdlcParameterName)}", LabelledParamExpr(p.PromptText, p.RdlcParameterName),
+                    bold: true, align: "Right", fontSize: "9pt",
+                    top: In(rightY), left: In(rightZoneLeftIn), width: In(rightZoneWidthIn), height: In(0.20)));
+                rightY += 0.22;
+            }
+            if (definition.IncludePageNumbers)
+            {
+                items.Add(BuildTextbox("HdrRight_PageNumber",
+                    "=\"Page : \" & Globals!PageNumber & \" / \" & Globals!TotalPages",
+                    bold: true, align: "Right", fontSize: "9pt",
+                    top: In(rightY), left: In(rightZoneLeftIn), width: In(rightZoneWidthIn), height: In(0.20)));
+                rightY += 0.22;
+            }
+
+            double headerHeightIn = Math.Max(0.30, new[] { leftY, centerY, rightY }.Max() + 0.05);
+
+            return new XElement(Rdl + "PageHeader",
+                new XElement(Rdl + "Height", In(headerHeightIn)),
+                new XElement(Rdl + "PrintOnFirstPage", "true"),
+                new XElement(Rdl + "PrintOnLastPage", "true"),
+                new XElement(Rdl + "ReportItems", items));
+        }
+
+        private static XElement? BuildPageFooter(ReportDefinition definition)
+        {
+            if (!definition.IncludeExecutionTime)
+                return null;
+
+            var tb = BuildTextbox("FtrExecutionTime", "=\"Printed: \" & Globals!ExecutionTime",
+                bold: false, align: "Left", fontSize: "8pt",
+                top: "0.03in", left: In(MarginIn), width: "4in", height: "0.18in");
+
+            return new XElement(Rdl + "PageFooter",
+                new XElement(Rdl + "Height", "0.25in"),
+                new XElement(Rdl + "PrintOnFirstPage", "true"),
+                new XElement(Rdl + "PrintOnLastPage", "true"),
+                new XElement(Rdl + "ReportItems", tb));
+        }
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // Body: Tablix with grouping (Requirement #2)
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+        private static XElement BuildBody(ReportDefinition definition, out double reportSectionWidthIn)
+        {
+            var columns = definition.Fields.Where(f => f.IsDetailField).OrderBy(f => f.DisplayOrder).ToList();
+            var groupFields = definition.Fields.Where(f => f.IsGroupBy).OrderBy(f => f.DisplayOrder).ToList();
+
+            var widths = ResolveColumnWidths(columns);
+            double tablixWidthIn = widths.Sum();
+
+            var tablixColumns = widths.Select(w => new XElement(Rdl + "TablixColumn", new XElement(Rdl + "Width", In(w))));
+            var columnMembers = columns.Select(_ => new XElement(Rdl + "TablixMember"));
+
+            var rows = new List<XElement> { BuildColumnHeaderRow(columns) };
+            var topLevelRowMembers = new List<XElement> { new XElement(Rdl + "TablixMember") }; // maps to column-header row
+
+            if (groupFields.Count > 0)
+            {
+                var (groupMember, groupRows) = BuildGroupLevel(groupFields, 0, columns);
+                rows.AddRange(groupRows);
+                topLevelRowMembers.Add(groupMember);
+            }
+            else
+            {
+                // No grouping configured â€” flat detail table under an unnamed Details group.
+                rows.Add(BuildDetailRow(columns));
+                topLevelRowMembers.Add(new XElement(Rdl + "TablixMember",
+                    new XElement(Rdl + "Group", new XAttribute("Name", "Details"))));
+            }
+
+            if (definition.IncludeGrandTotals)
+            {
+                rows.Add(BuildGrandTotalsRow(columns));
+                topLevelRowMembers.Add(new XElement(Rdl + "TablixMember"));
+            }
+
+            double tablixHeightIn = rows.Count * DefaultRowHeightIn + 0.10;
+
+            var tablix = new XElement(Rdl + "Tablix",
+                new XAttribute("Name", "Tablix_Main"),
+                new XElement(Rdl + "TablixBody",
+                    new XElement(Rdl + "TablixColumns", tablixColumns),
+                    new XElement(Rdl + "TablixRows", rows)),
+                new XElement(Rdl + "TablixColumnHierarchy", new XElement(Rdl + "TablixMembers", columnMembers)),
+                new XElement(Rdl + "TablixRowHierarchy", new XElement(Rdl + "TablixMembers", topLevelRowMembers)),
+                new XElement(Rdl + "DataSetName", "MainDataSet"),
+                new XElement(Rdl + "Top", "0in"),
+                new XElement(Rdl + "Left", "0in"),
+                new XElement(Rdl + "Height", In(tablixHeightIn)),
+                new XElement(Rdl + "Width", In(tablixWidthIn)));
+
+            reportSectionWidthIn = Math.Max(tablixWidthIn, TablixTotalWidthIn);
+
+            return new XElement(Rdl + "Body",
+                new XElement(Rdl + "ReportItems", tablix),
+                new XElement(Rdl + "Height", In(tablixHeightIn + 0.10)));
+        }
+
+        /// <summary>
+        /// Recursively builds one level of the row-grouping hierarchy for the given ordered
+        /// list of IsGroupBy fields. Returns the TablixMember for this level plus the flat,
+        /// document-ordered list of TablixRow elements it (and its descendants) contribute.
+        /// </summary>
+        private static (XElement Member, List<XElement> Rows) BuildGroupLevel(
+            List<ReportField> groupFields, int level, List<ReportField> columns)
+        {
+            if (level >= groupFields.Count)
+            {
+                var detailsMember = new XElement(Rdl + "TablixMember",
+                    new XElement(Rdl + "Group", new XAttribute("Name", "Details")));
+                return (detailsMember, new List<XElement> { BuildDetailRow(columns) });
+            }
+
+            var field = groupFields[level];
+            string fieldRef = SanitizeIdentifier(field.GetDatasetFieldName());
+            string groupName = $"{fieldRef}Group";
+            string label = field.DisplayHeaderLabel.ToUpperInvariant();
+            string headerExpr = $"=\"{Escape(label)} : \" & Fields!{fieldRef}.Value";
+
+            var headerRow = BuildSpannedRow($"GroupHeader_{groupName}", headerExpr, columns.Count);
+            var headerMember = new XElement(Rdl + "TablixMember"); // static leaf â†’ maps to headerRow
+
+            var (childMember, childRows) = BuildGroupLevel(groupFields, level + 1, columns);
+
+            var groupMember = new XElement(Rdl + "TablixMember",
+                new XElement(Rdl + "Group",
+                    new XAttribute("Name", groupName),
+                    new XElement(Rdl + "GroupExpressions",
+                        new XElement(Rdl + "GroupExpression", $"=Fields!{fieldRef}.Value"))),
+                new XElement(Rdl + "TablixMembers", headerMember, childMember));
+
+            var rows = new List<XElement> { headerRow };
+            rows.AddRange(childRows);
+            return (groupMember, rows);
+        }
+
+        private static XElement BuildColumnHeaderRow(List<ReportField> columns)
+        {
+            var cells = columns.Select(f =>
+                new XElement(Rdl + "TablixCell",
+                    new XElement(Rdl + "CellContents",
+                        BuildTextbox($"Hdr_{SanitizeIdentifier(f.Name)}", Literal(f.DisplayHeaderLabel.ToUpperInvariant()),
+                            bold: true, align: "Center", fontSize: "9pt",
+                            topBorderColor: GridLineColor, bottomBorderColor: GridLineColor))));
+
+            return new XElement(Rdl + "TablixRow",
+                new XElement(Rdl + "Height", In(HeaderRowHeightIn)),
+                new XElement(Rdl + "TablixCells", cells));
+        }
+
+        private static XElement BuildDetailRow(List<ReportField> columns)
+        {
+            var cells = columns.Select(f =>
+            {
+                string fieldName = SanitizeIdentifier(f.GetDatasetFieldName());
+                string expr = $"=Fields!{fieldName}.Value";
+                return new XElement(Rdl + "TablixCell",
+                    new XElement(Rdl + "CellContents",
+                        BuildTextbox($"Txt_{fieldName}", expr, bold: false, align: IsRightAligned(f) ? "Right" : "Left",
+                            fontSize: "9pt", format: ResolveFormat(f))));
+            });
+
+            return new XElement(Rdl + "TablixRow",
+                new XElement(Rdl + "Height", In(DefaultRowHeightIn)),
+                new XElement(Rdl + "TablixCells", cells));
+        }
+
+        private static XElement BuildGrandTotalsRow(List<ReportField> columns)
+        {
+            var cells = new List<XElement>();
+            for (int i = 0; i < columns.Count; i++)
+            {
+                var f = columns[i];
+                XElement textbox;
+
+                if (i == 0)
+                {
+                    textbox = BuildTextbox("Txt_GrandTotalsLabel", Literal("GRAND TOTALS"),
+                        bold: true, align: "Left", fontSize: "9pt", topBorderColor: GridLineColor);
+                }
+                else if (f.Aggregate != AggregateFunction.None)
+                {
+                    string fieldName = SanitizeIdentifier(f.GetDatasetFieldName());
+                    textbox = BuildTextbox($"Txt_Total_{fieldName}", $"=Sum(Fields!{fieldName}.Value)",
+                        bold: true, align: "Right", fontSize: "9pt",
+                        format: ResolveFormat(f), topBorderColor: GridLineColor);
+                }
+                else
+                {
+                    textbox = BuildTextbox($"Txt_TotalBlank_{i}", string.Empty,
+                        bold: false, align: "Left", fontSize: "9pt", topBorderColor: GridLineColor);
+                }
+
+                cells.Add(new XElement(Rdl + "TablixCell", new XElement(Rdl + "CellContents", textbox)));
+            }
+
+            return new XElement(Rdl + "TablixRow",
+                new XElement(Rdl + "Height", In(DefaultRowHeightIn)),
+                new XElement(Rdl + "TablixCells", cells));
+        }
+
+        /// <summary>
+        /// Builds a row where the SAME Textbox definition is repeated in every cell so the
+        /// renderer merges them into a single band spanning the full table width. Used for
+        /// the "BATCH NBR : 3292" style group header.
+        /// </summary>
+        private static XElement BuildSpannedRow(string baseName, string expression, int columnCount)
+        {
+            var template = BuildTextbox(baseName, expression, bold: true, align: "Left", fontSize: "9pt",
+                topBorderColor: GridLineColor, bottomBorderColor: GridLineColor);
+
+            var cells = Enumerable.Range(0, columnCount)
+                .Select(_ => new XElement(Rdl + "TablixCell", new XElement(Rdl + "CellContents", new XElement(template))));
+
+            return new XElement(Rdl + "TablixRow",
+                new XElement(Rdl + "Height", In(SpannedRowHeightIn)),
+                new XElement(Rdl + "TablixCells", cells));
+        }
+
+        private static List<double> ResolveColumnWidths(List<ReportField> columns)
+        {
+            var widths = new double[columns.Count];
+            double explicitSum = 0;
+            int autoCount = 0;
+
+            for (int i = 0; i < columns.Count; i++)
+            {
+                if (columns[i].ColumnWidth > 0)
+                {
+                    widths[i] = columns[i].ColumnWidth;
+                    explicitSum += widths[i];
+                }
+                else
+                {
+                    autoCount++;
+                }
+            }
+
+            double remaining = Math.Max(TablixTotalWidthIn - explicitSum, autoCount * 0.5);
+            double autoWidth = autoCount > 0 ? remaining / autoCount : 0;
+
+            for (int i = 0; i < columns.Count; i++)
+                if (columns[i].ColumnWidth <= 0)
+                    widths[i] = autoWidth;
+
+            return widths.ToList();
+        }
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // Shared Textbox builder
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+        /// <summary>
+        /// Builds a Textbox element. When top/left/width/height are supplied, it's built as a
+        /// free-floating item (PageHeader/PageFooter); when they're omitted, it's built for use
+        /// inside a TablixCell, where the cell/column/row dimensions govern its geometry.
+        /// </summary>
+        private static XElement BuildTextbox(
+            string name,
+            string value,
+            bool bold = false,
+            string align = "Left",
+            string fontSize = "9pt",
+            string? format = null,
+            string? topBorderColor = null,
+            string? bottomBorderColor = null,
+            string? top = null,
+            string? left = null,
+            string? width = null,
+            string? height = null)
+        {
+            var textRunStyle = new XElement(Rdl + "Style",
+                new XElement(Rdl + "FontWeight", bold ? "Bold" : "Normal"),
+                new XElement(Rdl + "FontSize", fontSize));
+            if (format is not null)
+                textRunStyle.Add(new XElement(Rdl + "Format", format));
+
+            var textbox = new XElement(Rdl + "Textbox",
+                new XAttribute("Name", name),
+                new XElement(Rdl + "CanGrow", "true"),
+                new XElement(Rdl + "KeepTogether", "true"),
+                new XElement(Rdl + "Paragraphs",
+                    new XElement(Rdl + "Paragraph",
+                        new XElement(Rdl + "TextRuns",
+                            new XElement(Rdl + "TextRun",
+                                new XElement(Rdl + "Value", value),
+                                textRunStyle)),
+                        new XElement(Rdl + "Style", new XElement(Rdl + "TextAlign", align)))),
+                new XElement(Rd + "DefaultName", name));
+
+            if (top is not null) textbox.Add(new XElement(Rdl + "Top", top));
+            if (left is not null) textbox.Add(new XElement(Rdl + "Left", left));
+            if (height is not null) textbox.Add(new XElement(Rdl + "Height", height));
+            if (width is not null) textbox.Add(new XElement(Rdl + "Width", width));
+
+            var boxStyle = new XElement(Rdl + "Style",
+                new XElement(Rdl + "Border", new XElement(Rdl + "Style", "None")),
+                new XElement(Rdl + "PaddingLeft", "2pt"),
+                new XElement(Rdl + "PaddingRight", "2pt"),
+                new XElement(Rdl + "PaddingTop", "1pt"),
+                new XElement(Rdl + "PaddingBottom", "1pt"));
+
+            if (topBorderColor is not null)
+                boxStyle.Add(new XElement(Rdl + "TopBorder",
+                    new XElement(Rdl + "Style", "Solid"),
+                    new XElement(Rdl + "Width", "0.5pt"),
+                    new XElement(Rdl + "Color", topBorderColor)));
+            if (bottomBorderColor is not null)
+                boxStyle.Add(new XElement(Rdl + "BottomBorder",
+                    new XElement(Rdl + "Style", "Solid"),
+                    new XElement(Rdl + "Width", "0.5pt"),
+                    new XElement(Rdl + "Color", bottomBorderColor)));
+
+            textbox.Add(boxStyle);
+            return textbox;
+        }
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        // Small helpers
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+        private static string In(double inches) => inches.ToString("0.00", CultureInfo.InvariantCulture) + "in";
+
+        private static string Literal(string text) => $"=\"{Escape(text)}\"";
+
+        private static string Escape(string s) => (s ?? string.Empty).Replace("\"", "\"\"");
+
+        private static string LabelledParamExpr(string label, string paramName)
+        {
+            string safeLabel = string.IsNullOrWhiteSpace(label) ? paramName : label;
+            return $"=\"{Escape(safeLabel)} : \" & Parameters!{SanitizeIdentifier(paramName)}.Value";
+        }
+
+        private static string NormalizeParamName(string raw) => SanitizeIdentifier((raw ?? string.Empty).TrimStart('@'));
+
+        /// <summary>Strips characters that aren't valid in an RDL/CLR identifier (element Name / Fields!x / Parameters!x).</summary>
+        private static string SanitizeIdentifier(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return "Field";
+            var sanitized = new string(raw.Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray());
+            if (sanitized.Length == 0) sanitized = "Field";
+            if (!char.IsLetter(sanitized[0]) && sanitized[0] != '_') sanitized = "_" + sanitized;
+            return sanitized;
+        }
+
+        /// <summary>4-decimal numeric format for money/decimal-like types, whole-number format for
+        /// integers, short date for date/time types â€” matches the "AMOUNT PAID: 172.0000" requirement.</summary>
+        private static string? ResolveFormat(ReportField f)
+        {
+            return f.SqlDataType.Trim().ToLowerInvariant() switch
+            {
+                "decimal" or "money" or "numeric" or "smallmoney" or "float" or "real" => "N4",
+                "int" or "bigint" or "smallint" or "tinyint" => "N0",
+                "date" or "datetime" or "datetime2" or "smalldatetime" => "d",
+                _ => null
+            };
+        }
+
+        private static bool IsRightAligned(ReportField f) => f.SqlDataType.Trim().ToLowerInvariant() is
+            "decimal" or "money" or "numeric" or "smallmoney" or "float" or "real" or
+            "int" or "bigint" or "smallint" or "tinyint";
+    }
+}
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\Services\ReportPreviewService.cs ===
+using System.Data;
+using System.IO;
+using System.Xml.Linq;
+using AutoReportWizard.Models;
+using Microsoft.Reporting.WinForms;
+
+namespace AutoReportWizard.Services;
+
+/// <summary>
+/// Renders a local RDLC file with an in-memory DataTable via the WinForms ReportViewer control.
+/// </summary>
+public static class ReportPreviewService
+{
+
+    /// <summary>
+    /// Generates RDLC XML to a temp file and returns the path.
+    /// </summary>
+    public static async Task<string> ScaffoldRdlcToTempAsync(ReportDefinition def, CancellationToken ct = default)
+    {
+        XDocument document = RdlcXmlEngine.GenerateRdlcXml(def);
+        string fileName = $"Preview_{SanitizeFileName(def.ReportName)}_{Guid.NewGuid():N}.rdlc";
+        string path = Path.Combine(Path.GetTempPath(), fileName);
+
+        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
+        await document.SaveAsync(stream, SaveOptions.None, ct);
+
+        return path;
+    }
+
+    /// <summary>
+    /// Binds a local RDLC and DataTable to a ReportViewer instance and refreshes the render.
+    /// </summary>
+    public static void RenderLocalReport(
+        ReportViewer viewer,
+        string rdlcPath,
+        DataTable data,
+        IEnumerable<DynamicParameter>? parameters = null)
+    {
+        if (string.IsNullOrWhiteSpace(rdlcPath) || !File.Exists(rdlcPath))
+            throw new FileNotFoundException("RDLC preview file was not found.", rdlcPath);
+
+        viewer.ProcessingMode = ProcessingMode.Local;
+        viewer.LocalReport.ReportPath = rdlcPath;
+        viewer.LocalReport.DataSources.Clear();
+        viewer.LocalReport.DataSources.Add(new ReportDataSource("MainDataSet", data));
+
+        if (parameters is not null)
+        {
+            var reportParams = parameters
+                .Where(p => !string.IsNullOrWhiteSpace(p.RdlcParameterName))
+                .Select(p => new Microsoft.Reporting.WinForms.ReportParameter(
+                    p.RdlcParameterName, p.Value ?? string.Empty))
+                .ToArray();
+
+            if (reportParams.Length > 0)
+                viewer.LocalReport.SetParameters(reportParams);
+        }
+
+        viewer.RefreshReport();
+    }
+
+    /// <summary>
+    /// Deletes a temp RDLC file created for preview. Failures are swallowed.
+    /// </summary>
+    public static void TryDeleteTempFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+            // Temp cleanup is best-effort.
+        }
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "Report";
+
+        foreach (char c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+
+        return name;
+    }
+}
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\Services\SqlGeneratorService.cs ===
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using AutoReportWizard.Infrastructure;
+using AutoReportWizard.Models;
+
+namespace AutoReportWizard.Services
+{
+    /// <summary>
+    /// Deterministic T-SQL generation engine.
+    /// Natively resolves table prefixes for JOINs and automatically injects 
+    /// parameter-based dynamic WHERE clauses.
+    /// </summary>
+    public class SqlGeneratorService
+    {
+        public string Generate(ReportDefinition def)
+        {
+            using var span = TelemetryService.StartGenerationSpan(
+                "generation.sql", def.ReportName, def.Fields.Count);
+
+            try
+            {
+                string result = !string.IsNullOrWhiteSpace(def.CustomSql)
+                    ? BuildFromCustomSql(def)
+                    : BuildFromFields(def);
+
+                TelemetryService.RecordSuccess(span, def.StoredProcName);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                TelemetryService.RecordFailure(span, ex, $"Report: {def.ReportName}");
+                throw;
+            }
+        }
+
+        private static string BuildFromCustomSql(ReportDefinition def)
+        {
+            var sb = new StringBuilder();
+            AppendProcedureHeader(sb, def);
+
+            string executableQuery = SqlQueryExtractor.ExtractExecutableQuery(
+                def.CustomSql,
+                def.PreQueryLogic);
+
+            if (string.IsNullOrWhiteSpace(executableQuery))
+                throw new InvalidOperationException("Custom SQL does not contain a valid SELECT statement.");
+
+            sb.AppendLine(executableQuery.TrimEnd());
+            if (!executableQuery.Contains("OPTION (RECOMPILE)", StringComparison.OrdinalIgnoreCase))
+                sb.AppendLine("OPTION (RECOMPILE);");
+
+            sb.AppendLine("SET NOCOUNT OFF;");
+            sb.AppendLine("END");
+            sb.AppendLine("GO");
+            return sb.ToString();
+        }
+
+        private static string BuildFromFields(ReportDefinition def)
+        {
+            var sb = new StringBuilder();
+            var groupByFields = def.Fields.Where(f => f.IsGroupBy).ToList();
+            var selectItems = BuildSelectList(def);
+
+            AppendProcedureHeader(sb, def);
+
+            if (!string.IsNullOrWhiteSpace(def.PreQueryLogic))
+            {
+                string pql = def.PreQueryLogic.Trim();
+                if (pql.StartsWith("WITH ", StringComparison.OrdinalIgnoreCase))
+                    pql = ";" + pql;
+
+                sb.AppendLine(pql);
+                sb.AppendLine();
+            }
+
+            if (selectItems.Count == 0)
+                throw new InvalidOperationException("At least one field is required to generate SQL.");
+
+            sb.AppendLine("    SELECT");
+            for (int i = 0; i < selectItems.Count; i++)
+            {
+                string comma = i < selectItems.Count - 1 ? "," : string.Empty;
+                sb.AppendLine($"        {selectItems[i]}{comma}");
+            }
+
+            sb.AppendLine($"    FROM {QuoteName(def.DatabaseName)}.{QuoteName(def.SchemaName)}.{QuoteName(def.TableOrViewName)} AS {QuoteName(def.TableOrViewName)}");
+
+            foreach (var join in def.Joins.Where(j => j is not null))
+                sb.AppendLine($"    {join.GetJoinExpression(def.DatabaseName, def.SchemaName)}");
+
+            // â”€â”€ DYNAMIC WHERE CLAUSE INJECTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            var whereConditions = new List<string>();
+
+            // 1. Add any custom hardcoded logic
+            if (!string.IsNullOrWhiteSpace(def.CustomWhereClause))
+                whereConditions.Add($"({def.CustomWhereClause.Trim()})");
+
+            // 2. Auto-generate the "Space = Retrieve All" parameter logic
+            var paramSource = def.DynamicParameters.Count > 0
+                ? def.DynamicParameters
+                : def.Parameters.Select(p => new DynamicParameter { ParameterName = p.Name }).ToList();
+
+            foreach (var param in paramSource)
+            {
+                string cleanName = param.ParameterName.TrimStart('@');
+
+                // Find the field that matches this parameter name
+                var matchingField = def.Fields.FirstOrDefault(f =>
+                    string.Equals(f.Name, cleanName, StringComparison.OrdinalIgnoreCase));
+
+                if (matchingField != null)
+                {
+                    string tableName = !string.IsNullOrWhiteSpace(matchingField.SourceTable)
+                        ? matchingField.SourceTable
+                        : def.TableOrViewName;
+
+                    string columnRef = $"{QuoteName(tableName)}.{QuoteName(matchingField.Name)}";
+                    whereConditions.Add($"(@{cleanName} = ' ' OR {columnRef} = @{cleanName})");
+                }
+            }
+
+            if (whereConditions.Count > 0)
+            {
+                sb.AppendLine("    WHERE");
+                for (int i = 0; i < whereConditions.Count; i++)
+                {
+                    string prefix = i == 0 ? "        " : "        AND ";
+                    sb.AppendLine($"{prefix}{whereConditions[i]}");
+                }
+            }
+
+            // â”€â”€ GROUP BY CLAUSE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            if (groupByFields.Count > 0)
+            {
+                sb.Append("    GROUP BY ");
+                var gbItems = groupByFields.Select(f =>
+                {
+                    string tableName = !string.IsNullOrWhiteSpace(f.SourceTable) ? f.SourceTable : def.TableOrViewName;
+                    return $"{QuoteName(tableName)}.{QuoteName(f.Name)}";
+                });
+                sb.AppendLine(string.Join(", ", gbItems));
+            }
+
+            sb.AppendLine("    OPTION (RECOMPILE);");
+            sb.AppendLine("    SET NOCOUNT OFF;");
+            sb.AppendLine("END");
+            sb.AppendLine("GO");
+            return sb.ToString();
+        }
+
+        private static void AppendProcedureHeader(StringBuilder sb, ReportDefinition def)
+        {
+            sb.AppendLine($"CREATE OR ALTER PROCEDURE {QuoteName(def.SchemaName)}.{QuoteName(def.StoredProcName)}");
+
+            var paramSource = def.DynamicParameters.Count > 0
+                ? def.DynamicParameters
+                : def.Parameters.Select(p => new DynamicParameter
+                {
+                    ParameterName = p.Name,
+                    DataType = p.SqlDataType
+                }).ToList();
+
+            if (paramSource.Count == 0)
+            {
+                sb.AppendLine("AS BEGIN");
+            }
+            else
+            {
+                for (int i = 0; i < paramSource.Count; i++)
+                {
+                    var param = paramSource[i];
+                    string name = param.ParameterName.StartsWith('@')
+                        ? param.ParameterName
+                        : $"@{param.ParameterName}";
+                    string comma = i < paramSource.Count - 1 ? "," : string.Empty;
+                    sb.AppendLine($"    {name} {param.DataType.ToUpperInvariant()}{comma}");
+                }
+
+                sb.AppendLine("AS BEGIN");
+            }
+
+            sb.AppendLine("    SET NOCOUNT ON;");
+            sb.AppendLine();
+        }
+
+        private static List<string> BuildSelectList(ReportDefinition def)
+        {
+            var items = new List<string>();
+
+            foreach (var field in def.Fields.OrderBy(f => f.DisplayOrder))
+            {
+                // Ensure every column is prefixed with its source table to prevent ambiguous column errors
+                string tableName = !string.IsNullOrWhiteSpace(field.SourceTable) ? field.SourceTable : def.TableOrViewName;
+                string colRef = $"{QuoteName(tableName)}.{QuoteName(field.Name)}";
+
+                if (field.IsGroupBy || field.Aggregate == AggregateFunction.None)
+                    items.Add($"{colRef} AS {QuoteName(field.Name)}");
+                else
+                {
+                    string aggName = field.Aggregate.ToString();
+                    string alias = $"{field.Name}_{aggName}";
+                    items.Add($"{aggName}({colRef}) AS {QuoteName(alias)}");
+                }
+            }
+
+            return items;
+        }
+
+        public static string QuoteName(string identifier)
+        {
+            if (string.IsNullOrEmpty(identifier))
+                throw new ArgumentException("Identifier cannot be null or empty.", nameof(identifier));
+
+            return "[" + identifier.Replace("]", "]]") + "]";
+        }
+    }
+}
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\Services\SqlVerificationService.cs ===
+using Microsoft.Data.SqlClient;
+using AutoReportWizard.Models;
+
+namespace AutoReportWizard.Services
+{
+    /// <summary>
+    /// Verifies generated T-SQL by executing SET PARSEONLY ON within a
+    /// rolled-back transaction on the target database.
+    ///
+    /// This service performs NO data changes. It only validates syntax.
+    /// On failure, it captures the SQL Server error details and returns
+    /// them as a structured result before any file is written.
+    /// </summary>
+    public class SqlVerificationService
+    {
+        /// <summary>
+        /// Result of a SQL syntax verification pass.
+        /// </summary>
+        public record SqlVerificationResult(
+            bool   IsValid,
+            string? ErrorMessage,
+            int     ErrorLine,
+            int     ErrorNumber);
+
+        /// <summary>
+        /// Parses the given SQL script against the target database.
+        /// Uses SET PARSEONLY ON â€” the server checks syntax without executing.
+        /// Wrapped in a transaction that is always rolled back.
+        /// </summary>
+        public async Task<SqlVerificationResult> VerifyAsync(
+            ReportDefinition def,
+            string generatedSql,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await using var connection = new SqlConnection(def.BuildConnectionString());
+                await connection.OpenAsync(cancellationToken);
+
+                await using var transaction = connection.BeginTransaction();
+                try
+                {
+                    // Tell the parser to only check syntax, not execute
+                    await using var parseOnlyCmd = new SqlCommand(
+                        "SET PARSEONLY ON", connection, transaction)
+                    {
+                        CommandTimeout = 30
+                    };
+                    await parseOnlyCmd.ExecuteNonQueryAsync(cancellationToken);
+
+                    // Execute the generated script â€” syntax errors surface here as SqlException
+                    await using var scriptCmd = new SqlCommand(
+                        generatedSql, connection, transaction)
+                    {
+                        CommandTimeout = 30
+                    };
+                    await scriptCmd.ExecuteNonQueryAsync(cancellationToken);
+
+                    // Turn PARSEONLY off before rolling back
+                    await using var parseOffCmd = new SqlCommand(
+                        "SET PARSEONLY OFF", connection, transaction)
+                    {
+                        CommandTimeout = 10
+                    };
+                    await parseOffCmd.ExecuteNonQueryAsync(cancellationToken);
+
+                    return new SqlVerificationResult(true, null, 0, 0);
+                }
+                finally
+                {
+                    // Always roll back â€” this is a read-only verification pass
+                    await transaction.RollbackAsync(cancellationToken);
+                }
+            }
+            catch (SqlException ex)
+            {
+                // Surface the first error with its line number for the UI
+                var first = ex.Errors.Count > 0 ? ex.Errors[0] : null;
+                return new SqlVerificationResult(
+                    false,
+                    ex.Message,
+                    first?.LineNumber ?? 0,
+                    first?.Number    ?? 0);
+            }
+            catch (Exception ex)
+            {
+                return new SqlVerificationResult(false, ex.Message, 0, 0);
+            }
+        }
+    }
+}
+
+
+=== FILE: C:\WIZARDREPORT\AutoReportWizard\ViewModels\WizardViewModel.cs ===
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Data;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using System.Windows.Input;
+using AutoReportWizard.Infrastructure;
+using AutoReportWizard.Models;
+using AutoReportWizard.Services;
+
+namespace AutoReportWizard.ViewModels
+{
+    /// <summary>
+    /// Central MVVM hub for the wizard. Holds the single ReportDefinition state
+    /// object and exposes all properties needed by every step view.
+    /// No JSON payloads â€” strongly typed objects are passed directly to services.
+    /// </summary>
+    public class WizardViewModel : INotifyPropertyChanged
+    {
+        private readonly DatabaseService _databaseService = new();
+
+        // â”€â”€ Core State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public ReportDefinition Report { get; } = new ReportDefinition();
+
+        /// <summary>Observable list of fields â€” bound to all step views.</summary>
+        public ObservableCollection<ReportField> Fields { get; } = new();
+
+        /// <summary>Fields available in the selected table (Left Box)</summary>
+        public ObservableCollection<ReportField> AvailableFields { get; } = new();
+
+        /// <summary>Observable list of parameters â€” bound to Step 6 preview bar.</summary>
+        public ObservableCollection<ReportParameter> Parameters { get; } = new();
+
+        /// <summary>User-defined dynamic parameters with prompt text and header mapping.</summary>
+        public ObservableCollection<DynamicParameter> DynamicParameters { get; } = new();
+
+        private ReportField? _selectedField;
+        /// <summary>
+        /// The field currently selected on the Step 5 drag-and-drop canvas.
+        /// The right-side Property Grid binds to this.
+        /// </summary>
+        public ReportField? SelectedField
+        {
+            get => _selectedField;
+            set
+            {
+                if (_selectedField == value) return;
+                _selectedField = value;
+                OnPropertyChanged();
+            }
+        }
+
+        /// <summary>SQL data types available in the parameter builder dropdown.</summary>
+        public static IReadOnlyList<string> SqlDataTypes { get; } = new[]
+        {
+            "int", "bigint", "smallint", "tinyint", "bit",
+            "char(8)", "varchar(50)", "varchar(max)", "nvarchar(50)", "nvarchar(max)",
+            "date", "datetime", "datetime2", "decimal(18,4)", "money", "float", "uniqueidentifier"
+        };
+
+        /// <summary>Header zone options for parameter-to-header mapping.</summary>
+        public static IReadOnlyList<HeaderZone> HeaderZones { get; } =
+            Enum.GetValues<HeaderZone>().ToList();
+
+        /// <summary>Join mappings configured for the current report.</summary>
+        public ObservableCollection<TableJoin> ConfiguredJoins { get; } = new();
+
+        /// <summary>Columns available in the currently selected base table.</summary>
+        public ObservableCollection<string> AvailableColumns { get; } = new();
+
+        private bool _isBusy;
+        public bool IsBusy
+        {
+            get => _isBusy;
+            set
+            {
+                if (_isBusy == value)
+                    return;
+
+                _isBusy = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public ICommand RunPreviewCommand { get; }
+        public ICommand AddParameterCommand { get; }
+        public ICommand RemoveParameterCommand { get; }
+
+        public WizardViewModel()
+        {
+            foreach (var parameter in Report.DynamicParameters)
+                DynamicParameters.Add(parameter);
+
+            foreach (var join in Report.Joins)
+                ConfiguredJoins.Add(join);
+
+            ConfiguredJoins.CollectionChanged += (_, _) => SyncJoinsToReport();
+            DynamicParameters.CollectionChanged += (_, _) => SyncDynamicParametersToReport();
+
+            RunPreviewCommand = new RelayCommand(
+                async _ => await RunPreviewAsync(),
+                _ => !IsPreviewRunning && !IsBusy);
+
+            AddParameterCommand = new RelayCommand(
+                _ => AddParameter(),
+                _ => !IsBusy);
+
+            RemoveParameterCommand = new RelayCommand(
+                p => RemoveParameter(p as DynamicParameter),
+                p => p is DynamicParameter && !IsBusy);
+        }
+
+        // â”€â”€ Step 1 Bindings (Target Environment & Credentials) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public string ServerName
+        {
+            get => Report.ServerName;
+            set { Report.ServerName = value; OnPropertyChanged(); }
+        }
+
+        public string DatabaseName
+        {
+            get => Report.DatabaseName;
+            set { Report.DatabaseName = value; OnPropertyChanged(); }
+        }
+
+        public AuthenticationType AuthType
+        {
+            get => Report.AuthType;
+            set
+            {
+                Report.AuthType = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsSqlAuth));
+                OnPropertyChanged(nameof(IsWindowsAuth));
+            }
+        }
+
+        public string Username
+        {
+            get => Report.Username;
+            set { Report.Username = value; OnPropertyChanged(); }
+        }
+
+        public string Password
+        {
+            set { Report.Password = value; }
+        }
+
+        public bool IsSqlAuth => AuthType == AuthenticationType.SqlServer;
+        public bool IsWindowsAuth => AuthType == AuthenticationType.Windows;
+
+
+        // â”€â”€ Step 2 Bindings (Dataset Definition) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public string ReportName
+        {
+            get => Report.ReportName;
+            set { Report.ReportName = value; OnPropertyChanged(); OnPropertyChanged(nameof(StoredProcName)); }
+        }
+
+        public string SchemaName
+        {
+            get => Report.SchemaName;
+            set { Report.SchemaName = value; OnPropertyChanged(); }
+        }
+
+        public string TableOrViewName
+        {
+            get => Report.TableOrViewName;
+            set
+            {
+                Report.TableOrViewName = value;
+                OnPropertyChanged();
+
+                // Auto-generate SQL based on selection
+                if (string.IsNullOrWhiteSpace(value))
+                    CustomSql = string.Empty;
+                else
+                {
+                    // Detect schema prefix
+                    string tableOrView = value;
+                    string? schema = null;
+
+                    if (value.Contains('.'))
+                    {
+                        var parts = value.Split('.');
+                        if (parts.Length == 2)
+                        {
+                            schema = parts[0];
+                            tableOrView = parts[1];
+                        }
+                    }
+
+                    string schemaClause = string.IsNullOrEmpty(schema) ? "dbo" : schema;
+                    string sanitizedName = tableOrView.Replace("[dbo].", "").Replace("dbo.", "").Trim();
+                    CustomSql = $"SELECT * FROM [{schemaClause}].[{sanitizedName}]";
+                }
+            }
+        }
+
+        // â”€â”€ Cascading Dropdown Collections & Caching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        private readonly Dictionary<string, List<string>> _schemaCache = new();
+        private readonly Dictionary<string, List<string>> _tableCache = new();
+
+        public ObservableCollection<string> AvailableDatabases { get; } = new();
+        public ObservableCollection<string> AvailableSchemas { get; } = new();
+        public ObservableCollection<string> AvailableTables { get; } = new();
+
+        private string _selectedDatabase = string.Empty;
+        public string SelectedDatabase
+        {
+            get => _selectedDatabase;
+            set
+            {
+                if (_selectedDatabase == value)
+                    return;
+
+                _selectedDatabase = value;
+                Report.DatabaseName = value;
+                OnPropertyChanged();
+
+                AvailableSchemas.Clear();
+                AvailableTables.Clear();
+                SelectedSchema = string.Empty;
+                SelectedTable = string.Empty;
+
+                if (!string.IsNullOrWhiteSpace(value))
+                    _ = LoadSchemasAsync();
+            }
+        }
+
+        private string _selectedSchema = string.Empty;
+        public string SelectedSchema
+        {
+            get => _selectedSchema;
+            set
+            {
+                if (_selectedSchema == value)
+                    return;
+
+                _selectedSchema = value;
+                Report.SchemaName = value;
+                OnPropertyChanged();
+
+                AvailableTables.Clear();
+                SelectedTable = string.Empty;
+
+                if (!string.IsNullOrWhiteSpace(value))
+                    _ = LoadTablesAsync();
+            }
+        }
+
+        private string _selectedTable = string.Empty;
+        public string SelectedTable
+        {
+            get => _selectedTable;
+            set
+            {
+                if (_selectedTable == value)
+                    return;
+
+                _selectedTable = value;
+                Report.TableOrViewName = value;
+                OnPropertyChanged();
+
+                if (!string.IsNullOrWhiteSpace(value))
+                    _ = LoadFieldsAsync();
+            }
+        }
+
+        public string StoredProcName => Report.StoredProcName;
+
+        // â”€â”€ Async Data Loading Methods â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+        public async Task LoadDatabaseOptionsAsync()
+        {
+            AvailableDatabases.Clear();
+            AvailableSchemas.Clear();
+            AvailableTables.Clear();
+            _schemaCache.Clear();
+            _tableCache.Clear();
+            IsBusy = true;
+
+            try
+            {
+                var dbs = await _databaseService.GetDatabasesAsync(Report);
+                foreach (var db in dbs)
+                    AvailableDatabases.Add(db);
+
+                if (!string.IsNullOrWhiteSpace(DatabaseName) && AvailableDatabases.Contains(DatabaseName))
+                {
+                    SelectedDatabase = DatabaseName;
+                }
+                else if (AvailableDatabases.Count > 0)
+                {
+                    SelectedDatabase = AvailableDatabases[0];
+                }
+            }
+            catch (Exception ex)
+            {
+                DiscoveryError = ex.Message;
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        public async Task LoadSchemasAsync()
+        {
+            AvailableSchemas.Clear();
+            AvailableTables.Clear();
+            AvailableColumns.Clear();
+            AvailableFields.Clear();
+
+            if (string.IsNullOrWhiteSpace(SelectedDatabase))
+                return;
+
+            try
+            {
+                if (_schemaCache.TryGetValue(SelectedDatabase, out var cachedSchemas))
+                {
+                    foreach (var schema in cachedSchemas)
+                        AvailableSchemas.Add(schema);
+                    return;
+                }
+
+                IsBusy = true;
+                var schemas = await _databaseService.GetSchemasAsync(Report);
+
+                var fetchedSchemas = schemas.ToList();
+                _schemaCache[SelectedDatabase] = fetchedSchemas;
+
+                foreach (var schema in fetchedSchemas)
+                    AvailableSchemas.Add(schema);
+            }
+            catch (Exception ex)
+            {
+                DiscoveryError = ex.Message;
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        public async Task LoadTablesAsync()
+        {
+            AvailableTables.Clear();
+            AvailableColumns.Clear();
+            AvailableFields.Clear();
+
+            if (string.IsNullOrWhiteSpace(SelectedSchema))
+                return;
+
+            string cacheKey = $"{SelectedDatabase}.{SelectedSchema}";
+
+            try
+            {
+                if (_tableCache.TryGetValue(cacheKey, out var cachedTables))
+                {
+                    foreach (var t in cachedTables) AvailableTables.Add(t);
+                    return;
+                }
+
+                IsBusy = true;
+                var tables = await _databaseService.GetTablesAndViewsAsync(Report, SelectedSchema);
+                var fetchedTables = tables.ToList();
+                _tableCache[cacheKey] = fetchedTables;
+
+                foreach (var t in fetchedTables) AvailableTables.Add(t);
+            }
+            catch (Exception ex)
+            {
+                DiscoveryError = ex.Message;
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        public async Task LoadFieldsAsync()
+        {
+            AvailableFields.Clear();
+            ClearAvailableColumns();
+
+            if (string.IsNullOrWhiteSpace(SelectedTable))
+                return;
+
+            try
+            {
+                IsBusy = true;
+                var fields = await _databaseService.GetSchemaAsync(Report);
+                foreach (var f in fields)
+                {
+                    f.SourceDatabase = SelectedDatabase;
+                    f.SourceSchema = SelectedSchema;
+                    f.SourceTable = SelectedTable;
+                    AvailableFields.Add(f);
+                    AvailableColumns.Add(f.Name);
+                }
+                UpdateJoinBaseTable(SelectedTable);
+            }
+            catch (Exception ex)
+            {
+                DiscoveryError = ex.Message;
+            }
+            finally
+            {
+                IsBusy = false;
+            }
+        }
+
+        // â”€â”€ Step 3 Bindings (Live SQL Editor) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public string CustomSql
+        {
+            get => Report.CustomSql;
+            set { Report.CustomSql = value; OnPropertyChanged(); }
+        }
+
+        // â”€â”€ Step 4 Bindings (Header & Footer) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public string ReportTitle
+        {
+            get => Report.ReportTitle;
+            set { Report.ReportTitle = value; OnPropertyChanged(); }
+        }
+
+        public string ReportSubtitle
+        {
+            get => Report.ReportSubtitle;
+            set { Report.ReportSubtitle = value; OnPropertyChanged(); }
+        }
+
+        public bool IncludeExecutionTime
+        {
+            get => Report.IncludeExecutionTime;
+            set { Report.IncludeExecutionTime = value; OnPropertyChanged(); }
+        }
+
+        public bool IncludePageNumbers
+        {
+            get => Report.IncludePageNumbers;
+            set { Report.IncludePageNumbers = value; OnPropertyChanged(); }
+        }
+
+        public bool IncludeGrandTotals
+        {
+            get => Report.IncludeGrandTotals;
+            set { Report.IncludeGrandTotals = value; OnPropertyChanged(); }
+        }
+
+        public string? DynamicHeaderFieldName
+        {
+            get => Report.DynamicHeaderFieldName;
+            set { Report.DynamicHeaderFieldName = value; OnPropertyChanged(); }
+        }
+
+        public string PreQueryLogic
+        {
+            get => Report.PreQueryLogic;
+            set { Report.PreQueryLogic = value; OnPropertyChanged(); }
+        }
+
+        public string CustomWhereClause
+        {
+            get => Report.CustomWhereClause;
+            set { Report.CustomWhereClause = value; OnPropertyChanged(); }
+        }
+
+        public string? HeaderSiteField
+        {
+            get => Report.HeaderSiteField;
+            set { Report.HeaderSiteField = value; OnPropertyChanged(); }
+        }
+
+        public string? HeaderProcessDateField
+        {
+            get => Report.HeaderProcessDateField;
+            set { Report.HeaderProcessDateField = value; OnPropertyChanged(); }
+        }
+
+        public string? HeaderJulianField
+        {
+            get => Report.HeaderJulianField;
+            set { Report.HeaderJulianField = value; OnPropertyChanged(); }
+        }
+
+        public string? HeaderWorksourceField
+        {
+            get => Report.HeaderWorksourceField;
+            set { Report.HeaderWorksourceField = value; OnPropertyChanged(); }
+        }
+
+        public string? HeaderLoadField
+        {
+            get => Report.HeaderLoadField;
+            set { Report.HeaderLoadField = value; OnPropertyChanged(); }
+        }
+
+        public string StaticHeaderLeftLine1
+        {
+            get => Report.StaticHeaderLeftLine1;
+            set { Report.StaticHeaderLeftLine1 = value; OnPropertyChanged(); }
+        }
+
+        public string StaticHeaderLeftLine2
+        {
+            get => Report.StaticHeaderLeftLine2;
+            set { Report.StaticHeaderLeftLine2 = value; OnPropertyChanged(); }
+        }
+
+        // Real-time clock for the Step 5 preview pane
+        public string CurrentPreviewTime => DateTime.Now.ToString("g");
+
+        // â”€â”€ Step 6 Bindings (Layout & Output) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public string OutputDirectory
+        {
+            get => Report.OutputDirectory;
+            set { Report.OutputDirectory = value; OnPropertyChanged(); }
+        }
+
+        private DataTable? _previewData;
+        public DataTable? PreviewData
+        {
+            get => _previewData;
+            set
+            {
+                _previewData = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasPreviewData));
+            }
+        }
+
+        private string? _previewRdlcPath;
+        /// <summary>Path to the temp RDLC file generated for Step 6 ReportViewer preview.</summary>
+        public string? PreviewRdlcPath
+        {
+            get => _previewRdlcPath;
+            set
+            {
+                _previewRdlcPath = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private DynamicParameter? _selectedDynamicParameter;
+        public DynamicParameter? SelectedDynamicParameter
+        {
+            get => _selectedDynamicParameter;
+            set
+            {
+                _selectedDynamicParameter = value;
+                OnPropertyChanged();
+            }
+        }
+
+        private bool _isPreviewRunning;
+        public bool IsPreviewRunning
+        {
+            get => _isPreviewRunning;
+            set
+            {
+                _isPreviewRunning = value;
+                OnPropertyChanged();
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+
+        private string _previewError = string.Empty;
+        public string PreviewError
+        {
+            get => _previewError;
+            set
+            {
+                _previewError = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasPreviewError));
+            }
+        }
+
+        public bool HasPreviewData => PreviewData?.Rows.Count > 0;
+        public bool HasPreviewError => !string.IsNullOrWhiteSpace(PreviewError);
+
+        // â”€â”€ Schema Discovery State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        private bool _isDiscovering;
+        public bool IsDiscovering
+        {
+            get => _isDiscovering;
+            set { _isDiscovering = value; OnPropertyChanged(); }
+        }
+
+        private string _discoveryError = string.Empty;
+        public string DiscoveryError
+        {
+            get => _discoveryError;
+            set { _discoveryError = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasDiscoveryError)); }
+        }
+
+        public bool HasDiscoveryError => !string.IsNullOrEmpty(_discoveryError);
+
+        // â”€â”€ Generation State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        private bool _isGenerating;
+        public bool IsGenerating
+        {
+            get => _isGenerating;
+            set { _isGenerating = value; OnPropertyChanged(); }
+        }
+
+        private string _generationLog = string.Empty;
+        public string GenerationLog
+        {
+            get => _generationLog;
+            set { _generationLog = value; OnPropertyChanged(); }
+        }
+
+        public void AppendLog(string message)
+        {
+            GenerationLog += $"[{DateTime.Now:HH:mm:ss}] {message}\n";
+        }
+
+        // â”€â”€ Sync Fields â†’ Report.Fields â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public void SyncFieldsToReport()
+        {
+            Report.Fields.Clear();
+            for (int i = 0; i < Fields.Count; i++)
+            {
+                Fields[i].DisplayOrder = i;
+                Report.Fields.Add(Fields[i]);
+            }
+        }
+
+        // â”€â”€ MVVM Boilerplate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        public void SyncParametersToReport()
+        {
+            Report.Parameters.Clear();
+            foreach (var parameter in DynamicParameters)
+                Report.Parameters.Add(parameter.ToReportParameter());
+        }
+
+        public void SyncDynamicParametersToReport()
+        {
+            Report.DynamicParameters.Clear();
+            for (int i = 0; i < DynamicParameters.Count; i++)
+            {
+                DynamicParameters[i].HeaderOrder = i;
+                Report.DynamicParameters.Add(DynamicParameters[i]);
+            }
+
+            SyncParametersToReport();
+        }
+
+        public void AddParameter()
+        {
+            string baseName = "@Param";
+            string uniqueName = baseName;
+            int counter = 1;
+            while (DynamicParameters.Any(p => p.ParameterName.Equals(uniqueName, StringComparison.OrdinalIgnoreCase)))
+            {
+                uniqueName = $"{baseName}{counter++}";
+            }
+
+            DynamicParameters.Add(new DynamicParameter
+            {
+                ParameterName = uniqueName,
+                DataType = "varchar(50)",
+                PromptText = "New Parameter"
+            });
+
+            SyncDynamicParametersToReport();
+        }
+
+        public void RemoveParameter(DynamicParameter? parameter)
+        {
+            if (parameter is null || !DynamicParameters.Contains(parameter))
+                return;
+
+            DynamicParameters.Remove(parameter);
+            SyncDynamicParametersToReport();
+        }
+
+        public void SyncJoinsToReport()
+        {
+            Report.Joins.Clear();
+            foreach (var join in ConfiguredJoins)
+                Report.Joins.Add(join);
+        }
+
+        public void UpdateJoinBaseTable(string baseTable)
+        {
+            foreach (var join in ConfiguredJoins.Where(j => string.IsNullOrWhiteSpace(j.PrimaryTable)))
+                join.PrimaryTable = baseTable;
+        }
+
+        public void ClearAvailableColumns()
+        {
+            AvailableColumns.Clear();
+        }
+
+        private async Task RunPreviewAsync()
+        {
+            if (IsPreviewRunning)
+                return;
+
+            PreviewError = string.Empty;
+            IsPreviewRunning = true;
+            IsBusy = true;
+
+            string? previousRdlcPath = PreviewRdlcPath;
+
+            try
+            {
+                SyncFieldsToReport();
+                SyncDynamicParametersToReport();
+
+                var (dataTable, rdlcPath) = await Task.Run(async () =>
+                {
+                    var table = await _databaseService.ExecuteStoredProcedurePreviewAsync(
+                        Report, Report.Parameters);
+
+                    string path = await ReportPreviewService.ScaffoldRdlcToTempAsync(Report);
+                    return (table, path);
+                });
+
+                PreviewData = dataTable;
+                PreviewRdlcPath = rdlcPath;
+                AppendLog($"Preview returned {PreviewData.Rows.Count} row(s) with RDLC at {rdlcPath}.");
+                ReportPreviewService.TryDeleteTempFile(previousRdlcPath);
+            }
+            catch (Exception ex)
+            {
+                PreviewData = null;
+                PreviewRdlcPath = null;
+                PreviewError = ex.Message;
+                AppendLog($"Preview failed: {ex.Message}");
+            }
+            finally
+            {
+                IsPreviewRunning = false;
+                IsBusy = false;
+            }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected void OnPropertyChanged([CallerMemberName] string? name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // RelayCommand â€” lightweight ICommand for MVVM command binding
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public class RelayCommand : ICommand
+    {
+        private readonly Action<object?> _execute;
+        private readonly Func<object?, bool>? _canExecute;
+
+        public RelayCommand(Action<object?> execute, Func<object?, bool>? canExecute = null)
+        {
+            _execute = execute ?? throw new ArgumentNullException(nameof(execute));
+            _canExecute = canExecute;
+        }
+
+        public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
+        public void Execute(object? parameter) => _execute(parameter);
+
+        public event EventHandler? CanExecuteChanged
+        {
+            add => CommandManager.RequerySuggested += value;
+            remove => CommandManager.RequerySuggested -= value;
+        }
+
+        public void RaiseCanExecuteChanged() =>
+            System.Windows.Application.Current.Dispatcher.Invoke(
+                System.Windows.Input.CommandManager.InvalidateRequerySuggested);
+    }
+}
+
+

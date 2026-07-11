@@ -26,32 +26,74 @@ namespace AutoReportWizard.Views
 
         private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-            // The TextBox Tag is bound to its sibling ListBox. This lets one method handle all 3 search bars.
-            if (sender is TextBox textBox && textBox.Tag is ListBox targetList && targetList.ItemsSource != null)
+            if (sender is TextBox textBox && textBox.Tag is ListBox targetList)
             {
-                var view = System.Windows.Data.CollectionViewSource.GetDefaultView(targetList.ItemsSource);
-                view.Filter = item =>
+                var searchText = textBox.Text;
+
+                // FIX: If this is the repeating "Joined Table" list, do NOT filter the shared default view.
+                // Doing so causes previously configured rows to lose their SelectedItem!
+                if (targetList.Name == "JoinTableList" && DataContext is WizardViewModel vm)
                 {
-                    if (string.IsNullOrWhiteSpace(textBox.Text)) return true;
-                    return item?.ToString().Contains(textBox.Text, System.StringComparison.OrdinalIgnoreCase) ?? false;
-                };
+                    // Preserve the selection so WPF doesn't drop it during the swap
+                    var currentSelection = targetList.SelectedItem;
+
+                    if (string.IsNullOrWhiteSpace(searchText))
+                    {
+                        // Reset to the full shared collection
+                        targetList.ItemsSource = vm.AvailableTables;
+                    }
+                    else
+                    {
+                        // Create a temporary local list just for this specific dropdown
+                        targetList.ItemsSource = vm.AvailableTables
+                            .Where(t => t.Contains(searchText, System.StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+                    }
+
+                    if (currentSelection != null)
+                        targetList.SelectedItem = currentSelection;
+
+                    return;
+                }
+
+                // Standard collection view filter for the single-instance dropdowns (Database, Schema, Base Table)
+                if (targetList.ItemsSource != null)
+                {
+                    var view = System.Windows.Data.CollectionViewSource.GetDefaultView(targetList.ItemsSource);
+                    view.Filter = item =>
+                    {
+                        if (string.IsNullOrWhiteSpace(searchText)) return true;
+                        return item?.ToString().Contains(searchText, System.StringComparison.OrdinalIgnoreCase) ?? false;
+                    };
+                }
             }
         }
 
         private void DropdownList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             // The ListBox Tag is bound to its parent ToggleButton. 
-            // This auto-closes the popup menu when the user clicks an item.
             if (sender is ListBox listBox && listBox.Tag is System.Windows.Controls.Primitives.ToggleButton toggle)
             {
-                toggle.IsChecked = false;
-
                 if (listBox.Parent is StackPanel panel)
                 {
-                    var searchBox = panel.Children.OfType<TextBox>().FirstOrDefault();
-                    if (searchBox != null)
+                    var activeSearchBox = panel.Children.OfType<TextBox>().FirstOrDefault();
+                    if (activeSearchBox != null && activeSearchBox.IsKeyboardFocusWithin)
                     {
-                        searchBox.Text = string.Empty; // This clears the text AND resets the list filter
+                        return;
+                    }
+                }
+
+                if (e.AddedItems.Count > 0)
+                {
+                    toggle.IsChecked = false; // Close the popup
+
+                    if (listBox.Parent is StackPanel p)
+                    {
+                        var searchBox = p.Children.OfType<TextBox>().FirstOrDefault();
+                        if (searchBox != null)
+                        {
+                            searchBox.Text = string.Empty;
+                        }
                     }
                 }
             }

@@ -5,6 +5,11 @@ using Microsoft.Data.SqlClient;
 using Polly;
 using Polly.Retry;
 using AutoReportWizard.Models;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using System.Threading;
+using System;
+using System.Linq;
 
 namespace AutoReportWizard.Infrastructure
 {
@@ -14,14 +19,14 @@ namespace AutoReportWizard.Infrastructure
     /// Polly 8 resilience pipeline (exponential backoff, 3 retries).
     ///
     /// STRICT RULES:
-    ///   - Only Integrated Security is used â€” no username/password parameters.
+    ///   - Only Integrated Security is used — no username/password parameters.
     ///   - Schema discovery is performed exclusively through sys.columns and
     ///     sys.types system views with parameterized commands.
     ///   - No dynamic SQL is constructed or executed in this service.
     /// </summary>
     public class DatabaseService
     {
-        // â”€â”€ SQL-type â†’ .NET System.Type mapping (deterministic, no reflection) â”€â”€
+        // ── SQL-type → .NET System.Type mapping (deterministic, no reflection) ──
         private static readonly Dictionary<string, string> SqlTypeMap = new(StringComparer.OrdinalIgnoreCase)
         {
             ["bigint"] = "System.Int64",
@@ -55,7 +60,7 @@ namespace AutoReportWizard.Infrastructure
             ["xml"] = "System.String",
         };
 
-        // â”€â”€ Polly 8 resilience pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Polly 8 resilience pipeline ─────────────────────────────────────────
         private readonly ResiliencePipeline _resilience = new ResiliencePipelineBuilder()
             .AddRetry(new RetryStrategyOptions
             {
@@ -70,19 +75,20 @@ namespace AutoReportWizard.Infrastructure
                             or 10060),       // Network unreachable
                 MaxRetryAttempts = ReportDefinition.MaxDbRetries,
                 Delay = TimeSpan.FromSeconds(2),
-                BackoffType = DelayBackoffType.Exponential,   // 2s â†’ 4s â†’ 8s
+                BackoffType = DelayBackoffType.Exponential,   // 2s → 4s → 8s
                 UseJitter = true,
                 OnRetry = args =>
                 {
                     Debug.WriteLine(
                         $"[DatabaseService] Retry {args.AttemptNumber} after " +
-                        $"{args.RetryDelay.TotalSeconds:F1}s â€” {args.Outcome.Exception?.Message}");
+                        $"{args.RetryDelay.TotalSeconds:F1}s — {args.Outcome.Exception?.Message}");
                     return ValueTask.CompletedTask;
                 }
             })
             .Build();
 
-        // â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Public API ──────────────────────────────────────────────────────────
+
         /// <summary>
         /// Analyzes a custom T-SQL script (e.g. cross-database joins, UNIONS) and extracts
         /// the exact output schema using sp_describe_first_result_set.
@@ -138,13 +144,11 @@ namespace AutoReportWizard.Infrastructure
 
             return fields;
         }
+
         /// <summary>
         /// Discovers all columns for the given table/view from sys.columns.
         /// Enforces the 30-column guardrail and the 60-second schema timeout.
         /// </summary>
-        /// <param name="def">Report definition supplying Server, Database, Schema, TableOrViewName.</param>
-        /// <param name="cancellationToken">Caller-provided cancellation.</param>
-        /// <returns>Ordered list of ReportField objects with SqlDataType and DotNetType populated.</returns>
         public async Task<List<ReportField>> GetSchemaAsync(
             ReportDefinition def,
             CancellationToken cancellationToken = default)
@@ -156,7 +160,7 @@ namespace AutoReportWizard.Infrastructure
                 await using var connection = new SqlConnection(def.BuildConnectionString());
                 await connection.OpenAsync(ct);
 
-                // Parameterized query â€” no dynamic SQL, only system views
+                // Parameterized query — no dynamic SQL, only system views
                 const string sql = """
                     SELECT
                         c.name                AS ColumnName,
@@ -193,7 +197,15 @@ namespace AutoReportWizard.Infrastructure
                         SqlDataType = sqlType,
                         DotNetType = MapToDotNet(sqlType),
                         IsDetailField = true,
-                        DisplayOrder = colOrder - 1  // 0-based
+                        DisplayOrder = colOrder - 1,  // 0-based
+                        // Grid-snapped defaults for the WYSIWYG Canvas
+                        ItemWidth = 120,
+                        ItemHeight = 32,
+                        CanvasX = 16,
+                        CanvasY = 16,
+                        TextAlign = "Default",
+                        FontWeight = "Normal",
+                        BorderColor = "LightGrey"
                     });
                 }
             }, cancellationToken);
@@ -244,6 +256,7 @@ namespace AutoReportWizard.Infrastructure
 
             return databases.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
+
         /// <summary>
         /// Fetches all schemas for the currently selected database.
         /// </summary>
@@ -297,9 +310,9 @@ namespace AutoReportWizard.Infrastructure
         }
 
         public async Task<DataTable> ExecuteStoredProcedurePreviewAsync(
-    ReportDefinition def,
-    IReadOnlyCollection<ReportParameter> parameters,
-    CancellationToken ct = default)
+            ReportDefinition def,
+            IReadOnlyCollection<ReportParameter> parameters,
+            CancellationToken ct = default)
         {
             var data = new DataTable("PreviewData");
 
@@ -354,6 +367,7 @@ namespace AutoReportWizard.Infrastructure
 
             return data;
         }
+
         /// <summary>
         /// Tests connectivity to the target server/database using Windows Auth.
         /// Returns null on success, or an error message string on failure.
@@ -384,12 +398,59 @@ namespace AutoReportWizard.Infrastructure
             }
         }
 
-        // â”€â”€ Type Mapping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
         /// <summary>
-        /// Deterministically maps a SQL type name to its .NET System.Type string.
-        /// Falls back to System.String for any unmapped type.
+        /// Imports schema directly from an existing Stored Procedure.
+        /// Executes the raw query string provided (e.g., EXEC [sp] 'param1', 'param2').
         /// </summary>
+        public async Task<List<ReportField>> ImportStoredProcedureSchemaAsync(string connectionString, string spName, Dictionary<string, object> testParameters, CancellationToken cancellationToken = default)
+        {
+            var fields = new List<ReportField>();
+
+            await _resilience.ExecuteAsync(async ct =>
+            {
+                await using var connection = new SqlConnection(connectionString);
+                await connection.OpenAsync(ct);
+
+                await using var cmd = new SqlCommand(spName, connection);
+                // CHANGED: Use Text to allow full EXEC statements with inline parameters
+                cmd.CommandType = CommandType.Text;
+                cmd.CommandTimeout = ReportDefinition.SchemaTimeoutSeconds;
+
+                // Execute the SP and capture the output shape
+                await using var reader = await cmd.ExecuteReaderAsync(ct);
+                var schemaTable = reader.GetSchemaTable();
+
+                if (schemaTable != null)
+                {
+                    int displayOrder = 0;
+                    foreach (DataRow row in schemaTable.Rows)
+                    {
+                        string columnName = row["ColumnName"].ToString() ?? string.Empty;
+                        string dataType = row["DataType"]?.ToString() ?? "System.String";
+
+                        fields.Add(new ReportField
+                        {
+                            Name = columnName,
+                            DotNetType = dataType,
+                            IsDetailField = true,
+                            DisplayOrder = displayOrder++,
+                            ItemWidth = 120,
+                            ItemHeight = 32,
+                            CanvasX = 16,
+                            CanvasY = 16,
+                            TextAlign = "Default",
+                            FontWeight = "Normal",
+                            BorderColor = "LightGrey"
+                        });
+                    }
+                }
+            }, cancellationToken);
+
+            return fields;
+        }
+
+        // ── Type Mapping ────────────────────────────────────────────────────────
+
         private static object ConvertParameterValue(ReportParameter parameter)
         {
             string rawValue = parameter.Value?.Trim() ?? string.Empty;
@@ -449,4 +510,3 @@ namespace AutoReportWizard.Infrastructure
                 : "System.String";
     }
 }
-
