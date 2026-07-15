@@ -23,6 +23,16 @@ public class WizardViewModel : INotifyPropertyChanged
 {
     private readonly DatabaseService _databaseService = new();
 
+    private System.Threading.CancellationTokenSource? _currentCts;
+
+    private System.Threading.CancellationToken RefreshCancellationToken()
+    {
+        _currentCts?.Cancel();
+        _currentCts?.Dispose();
+        _currentCts = new System.Threading.CancellationTokenSource();
+        return _currentCts.Token;
+    }
+
     // ── Core State ────────────────────────────────────────────────────────
     public ReportDefinition Report { get; } = new ReportDefinition();
 
@@ -339,6 +349,7 @@ public class WizardViewModel : INotifyPropertyChanged
 
     public async Task LoadDatabaseOptionsAsync()
     {
+        var ct = RefreshCancellationToken();
         AvailableDatabases.Clear();
         AvailableSchemas.Clear();
         AvailableTables.Clear();
@@ -348,7 +359,7 @@ public class WizardViewModel : INotifyPropertyChanged
 
         try
         {
-            var dbs = await _databaseService.GetDatabasesAsync(Report);
+            var dbs = await _databaseService.GetDatabasesAsync(Report, ct);
             foreach (var db in dbs)
                 AvailableDatabases.Add(db);
 
@@ -373,6 +384,7 @@ public class WizardViewModel : INotifyPropertyChanged
 
     public async Task ImportSpSchemaAsync()
     {
+        var ct = RefreshCancellationToken();
         IsBusy = true;
         DiscoveryError = string.Empty;
 
@@ -385,7 +397,8 @@ public class WizardViewModel : INotifyPropertyChanged
             var fields = await _databaseService.ImportStoredProcedureSchemaAsync(
                 Report.BuildConnectionString(),
                 spName,
-                testParams);
+                testParams,
+                ct);
 
             AvailableFields.Clear();
             Fields.Clear();
@@ -423,6 +436,8 @@ public class WizardViewModel : INotifyPropertyChanged
         if (string.IsNullOrWhiteSpace(SelectedDatabase))
             return;
 
+        var ct = RefreshCancellationToken();
+
         try
         {
             if (_schemaCache.TryGetValue(SelectedDatabase, out var cachedSchemas))
@@ -433,7 +448,7 @@ public class WizardViewModel : INotifyPropertyChanged
             }
 
             IsBusy = true;
-            var schemas = await _databaseService.GetSchemasAsync(Report);
+            var schemas = await _databaseService.GetSchemasAsync(Report, ct);
 
             var fetchedSchemas = schemas.ToList();
             _schemaCache[SelectedDatabase] = fetchedSchemas;
@@ -461,6 +476,7 @@ public class WizardViewModel : INotifyPropertyChanged
             return;
 
         string cacheKey = $"{SelectedDatabase}.{SelectedSchema}";
+        var ct = RefreshCancellationToken();
 
         try
         {
@@ -471,7 +487,7 @@ public class WizardViewModel : INotifyPropertyChanged
             }
 
             IsBusy = true;
-            var tables = await _databaseService.GetTablesAndViewsAsync(Report, SelectedSchema);
+            var tables = await _databaseService.GetTablesAndViewsAsync(Report, SelectedSchema, ct);
             var fetchedTables = tables.ToList();
             _tableCache[cacheKey] = fetchedTables;
 
@@ -495,10 +511,12 @@ public class WizardViewModel : INotifyPropertyChanged
         if (string.IsNullOrWhiteSpace(SelectedTable))
             return;
 
+        var ct = RefreshCancellationToken();
+
         try
         {
             IsBusy = true;
-            var fields = await _databaseService.GetSchemaAsync(Report);
+            var fields = await _databaseService.GetSchemaAsync(Report, ct);
             foreach (var f in fields)
             {
                 f.SourceDatabase = SelectedDatabase;
@@ -833,12 +851,87 @@ public class WizardViewModel : INotifyPropertyChanged
             SelectedComponent = null;
         }
     }
+    // ── Designer Initialization ───────────────────────────────────────────
+    public void InitializeCanvasFromConfig()
+    {
+        // Don't overwrite the canvas if the user has already started designing
+        if (CanvasComponents.Count > 0) return;
 
+        // 1. Generate Report Title (Center Top)
+        if (!string.IsNullOrWhiteSpace(ReportTitle))
+        {
+            CanvasComponents.Add(new TextComponent
+            {
+                Text = ReportTitle,
+                X = 250,
+                Y = 20,
+                Width = 300,
+                Height = 40,
+                FontSize = 22
+            });
+        }
+
+        // 2. Generate Report Subtitle (Center Top, below Title)
+        if (!string.IsNullOrWhiteSpace(ReportSubtitle))
+        {
+            CanvasComponents.Add(new TextComponent
+            {
+                Text = ReportSubtitle,
+                X = 250,
+                Y = 60,
+                Width = 300,
+                Height = 30,
+                FontSize = 14
+            });
+        }
+
+        // 3. Generate Header Mappings (Top Left)
+        double currentY = 20;
+        if (!string.IsNullOrWhiteSpace(HeaderSiteField))
+        {
+            CanvasComponents.Add(new TextComponent { Text = $"Site: [={HeaderSiteField}]", X = 20, Y = currentY, Width = 200, Height = 25 });
+            currentY += 25;
+        }
+        if (!string.IsNullOrWhiteSpace(HeaderProcessDateField))
+        {
+            CanvasComponents.Add(new TextComponent { Text = $"Process: [={HeaderProcessDateField}]", X = 20, Y = currentY, Width = 200, Height = 25 });
+            currentY += 25;
+        }
+        if (!string.IsNullOrWhiteSpace(HeaderJulianField))
+        {
+            CanvasComponents.Add(new TextComponent { Text = $"Julian: [={HeaderJulianField}]", X = 20, Y = currentY, Width = 200, Height = 25 });
+        }
+
+        // 4. Generate Footer Elements (Bottom of A4 page: Y = 1050)
+        if (IncludeExecutionTime)
+        {
+            CanvasComponents.Add(new TextComponent
+            {
+                Text = "Execution Time: [=Globals!ExecutionTime]",
+                X = 20,
+                Y = 1060,
+                Width = 250,
+                Height = 25
+            });
+        }
+        if (IncludePageNumbers)
+        {
+            CanvasComponents.Add(new TextComponent
+            {
+                Text = "Page [=Globals!PageNumber] of [=Globals!TotalPages]",
+                X = 550,
+                Y = 1060,
+                Width = 200,
+                Height = 25
+            });
+        }
+    }
     private async Task RunPreviewAsync()
     {
         if (IsPreviewRunning)
             return;
 
+        var ct = RefreshCancellationToken();
         PreviewError = string.Empty;
         IsPreviewRunning = true;
         IsBusy = true;
@@ -853,11 +946,11 @@ public class WizardViewModel : INotifyPropertyChanged
             var (dataTable, rdlcPath) = await Task.Run(async () =>
             {
                 var table = await _databaseService.ExecuteStoredProcedurePreviewAsync(
-                    Report, Report.Parameters);
+                    Report, Report.Parameters, ct);
 
-                string path = await ReportPreviewService.ScaffoldRdlcToTempAsync(Report);
+                string path = await ReportPreviewService.ScaffoldRdlcToTempAsync(Report, ct);
                 return (table, path);
-            });
+            }, ct);
 
             PreviewData = dataTable;
             PreviewRdlcPath = rdlcPath;

@@ -1,101 +1,124 @@
-using System.ComponentModel;
+using System;
+using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
+using Microsoft.Win32;
 using AutoReportWizard.Services;
 using AutoReportWizard.ViewModels;
 
-namespace AutoReportWizard.Views;
-
-public partial class Step6View : System.Windows.Controls.UserControl
+namespace AutoReportWizard.Views
 {
-    private Microsoft.Reporting.WinForms.ReportViewer? _reportViewer;
-    private WizardViewModel? _viewModel;
-
-    public Step6View()
+    public partial class Step6View : UserControl
     {
-        InitializeComponent();
-        Loaded += OnLoaded;
-        Unloaded += OnUnloaded;
-        DataContextChanged += OnDataContextChanged;
-    }
+        private readonly SqlGeneratorService _sqlGen = new();
+        private readonly SqlVerificationService _sqlVerify = new();
+        private readonly RdlcValidationService _rdlcVal = new();
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
-    {
-        InitializeReportViewer();
-        TryRenderPreview();
-    }
-
-    private void OnUnloaded(object sender, RoutedEventArgs e)
-    {
-        if (_viewModel is not null)
-            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
-    }
-
-    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
-    {
-        if (_viewModel is not null)
-            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
-
-        _viewModel = e.NewValue as WizardViewModel;
-
-        if (_viewModel is not null)
-            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
-    }
-
-    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName is nameof(WizardViewModel.PreviewData)
-            or nameof(WizardViewModel.PreviewRdlcPath))
+        public Step6View()
         {
-            Dispatcher.BeginInvoke(TryRenderPreview);
+            InitializeComponent();
         }
-    }
 
-    private void InitializeReportViewer()
-    {
-        if (_reportViewer is not null)
-            return;
-
-        _reportViewer = new Microsoft.Reporting.WinForms.ReportViewer
+        private void BrowseFolder_Click(object sender, RoutedEventArgs e)
         {
-            Dock = System.Windows.Forms.DockStyle.Fill,
-            ShowExportButton = false,
-            ShowPrintButton = false,
-            ShowRefreshButton = false,
-            ShowZoomControl = true,
-            ShowFindControls = false,
-            ShowPageNavigationControls = true,
-            ShowBackButton = false,
-            ShowDocumentMapButton = false,
-            ShowParameterPrompts = false,
-            ShowPromptAreaButton = false,
-            ProcessingMode = Microsoft.Reporting.WinForms.ProcessingMode.Local
-        };
+            if (DataContext is not WizardViewModel vm) return;
 
-        ReportHost.Child = _reportViewer;
-    }
+            var dlg = new OpenFolderDialog
+            {
+                Title = "Select output folder for generated .sql and .rdlc files",
+                InitialDirectory = vm.OutputDirectory
+            };
 
-    private void TryRenderPreview()
-    {
-        if (_reportViewer is null || _viewModel is null)
-            return;
-
-        if (_viewModel.PreviewData is null ||
-            string.IsNullOrWhiteSpace(_viewModel.PreviewRdlcPath))
-            return;
-
-        try
-        {
-            ReportPreviewService.RenderLocalReport(
-                _reportViewer,
-                _viewModel.PreviewRdlcPath,
-                _viewModel.PreviewData,
-                _viewModel.DynamicParameters);
-
-            ReportHost.Visibility = System.Windows.Visibility.Visible;
+            if (dlg.ShowDialog() == true)
+                vm.OutputDirectory = dlg.FolderName;
         }
-        catch (Exception ex)
+
+        private async void GenerateBtn_Click(object sender, RoutedEventArgs e)
         {
-            _viewModel.PreviewError = $"Report render failed: {ex.Message}";
+            if (DataContext is not WizardViewModel vm) return;
+
+            // Ensure ViewModel internal lists are perfectly synced before generation
+            vm.SyncFieldsToReport();
+            vm.SyncParametersToReport();
+
+            if (string.IsNullOrWhiteSpace(vm.ReportName))
+            {
+                vm.AppendLog("❌ Aborted — Report Name is required.");
+                return;
+            }
+
+            vm.IsGenerating = true;
+            vm.GenerationLog = string.Empty;
+
+            PhaseALabel.Foreground = System.Windows.Media.Brushes.DimGray;
+            PhaseBLabel.Foreground = System.Windows.Media.Brushes.DimGray;
+
+            try
+            {
+                Directory.CreateDirectory(vm.OutputDirectory);
+
+                // ── PHASE A ───────────────────────────────────────────────
+                PhaseALabel.Text = "⏳ Phase A — T-SQL";
+                PhaseALabel.Foreground = System.Windows.Media.Brushes.Gold;
+                vm.AppendLog("── Phase A: T-SQL Generation ──────────────────");
+
+                string generatedSql = await Task.Run(() => _sqlGen.Generate(vm.Report));
+                vm.AppendLog("  ✔ T-SQL script generated successfully.");
+
+                vm.AppendLog("  Verifying syntax via SET PARSEONLY ON…");
+                var verifyResult = await _sqlVerify.VerifyAsync(vm.Report, generatedSql);
+
+                if (!verifyResult.IsValid)
+                {
+                    vm.AppendLog($"  ⚠️  SQL Verification Warning (Line {verifyResult.ErrorLine}): {verifyResult.ErrorMessage}");
+                }
+                else
+                {
+                    vm.AppendLog("  ✔ Syntax verified.");
+                }
+
+                string sqlPath = Path.Combine(vm.OutputDirectory, $"{vm.Report.StoredProcName}.sql");
+                await File.WriteAllTextAsync(sqlPath, generatedSql);
+                vm.AppendLog($"  📄 Saved: {sqlPath}\n");
+
+                PhaseALabel.Text = "✔ Phase A — T-SQL";
+                PhaseALabel.Foreground = System.Windows.Media.Brushes.LightGreen;
+
+                // ── PHASE B ───────────────────────────────────────────────
+                PhaseBLabel.Text = "⏳ Phase B — RDLC XML";
+                PhaseBLabel.Foreground = System.Windows.Media.Brushes.Gold;
+                vm.AppendLog("── Phase B: RDLC XML Generation ───────────────");
+
+                var rdlcDoc = await Task.Run(() => RdlcXmlEngine.GenerateRdlcXml(vm.Report));
+                vm.AppendLog("  ✔ XDocument built successfully.");
+
+                string rdlcPath = Path.Combine(vm.OutputDirectory, $"{vm.Report.ReportName}.rdlc");
+                await Task.Run(() => rdlcDoc.Save(rdlcPath));
+                vm.AppendLog($"  📄 Saved: {rdlcPath}\n");
+
+                PhaseBLabel.Text = "✔ Phase B — RDLC XML";
+                PhaseBLabel.Foreground = System.Windows.Media.Brushes.LightGreen;
+
+                vm.AppendLog("══ Generation Complete ══════════════════════════");
+                ScrollLogToBottom();
+            }
+            catch (Exception ex)
+            {
+                vm.AppendLog($"❌ FATAL ERROR: {ex.Message}");
+                Infrastructure.TelemetryService.RecordFailure(null, ex, vm.Report.ReportName);
+            }
+            finally
+            {
+                vm.IsGenerating = false;
+                ScrollLogToBottom();
+            }
+        }
+
+        private void ScrollLogToBottom()
+        {
+            Dispatcher.BeginInvoke(() => LogScroller.ScrollToBottom(),
+                System.Windows.Threading.DispatcherPriority.Background);
         }
     }
 }

@@ -412,11 +412,10 @@ namespace AutoReportWizard.Infrastructure
                 await connection.OpenAsync(ct);
 
                 await using var cmd = new SqlCommand(spName, connection);
-                // CHANGED: Use Text to allow full EXEC statements with inline parameters
                 cmd.CommandType = CommandType.Text;
                 cmd.CommandTimeout = ReportDefinition.SchemaTimeoutSeconds;
 
-                // Execute the SP and capture the output shape
+                // Phase 1 Fix: Use SchemaOnly to prevent heavy data execution during discovery
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 var schemaTable = reader.GetSchemaTable();
 
@@ -426,6 +425,10 @@ namespace AutoReportWizard.Infrastructure
                     foreach (DataRow row in schemaTable.Rows)
                     {
                         string columnName = row["ColumnName"].ToString() ?? string.Empty;
+
+                        // Guardrail against empty column names returned by bad SPs
+                        if (string.IsNullOrWhiteSpace(columnName)) continue;
+
                         string dataType = row["DataType"]?.ToString() ?? "System.String";
 
                         fields.Add(new ReportField

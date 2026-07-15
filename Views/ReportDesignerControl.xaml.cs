@@ -5,52 +5,103 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using AutoReportWizard.Models;
+using AutoReportWizard.Services;
 using AutoReportWizard.ViewModels;
 
 namespace AutoReportWizard.Views;
 
 /// <summary>
 /// Interaction logic for ReportDesignerControl.xaml.
-/// Implements drag-and-drop, mouse dragging, resizing, and property synchronization.
+/// Implements drag-and-drop, mouse dragging, resizing, property synchronization,
+/// and (Phase 2) the integrated live RDLC preview via Microsoft ReportViewer.
 /// </summary>
 public partial class ReportDesignerControl : UserControl
 {
+    // ── Canvas drag state ────────────────────────────────────────────────────
     private bool _isDragging;
     private Point _dragStartMousePos;
     private double _dragStartComponentX;
     private double _dragStartComponentY;
     private ReportComponent? _draggedComponent;
 
+    // ── Live Preview (ReportViewer) state ────────────────────────────────────
+    /// <summary>
+    /// The WinForms ReportViewer control embedded in the Live Preview tab.
+    /// Created lazily on first load so WindowsFormsHost is ready.
+    /// </summary>
+    private Microsoft.Reporting.WinForms.ReportViewer? _reportViewer;
+
+    /// <summary>Cached reference to the current ViewModel for property subscriptions.</summary>
+    private WizardViewModel? _designerVm;
+
+    // ── Constructor ──────────────────────────────────────────────────────────
     public ReportDesignerControl()
     {
         InitializeComponent();
-        
-        // FIX: Subscribe to the event here instead of trying to override a non-existent method
+
+        // Subscribe to DataContext changes to wire up ViewModel listeners
         this.DataContextChanged += ReportDesignerControl_DataContextChanged;
+
+        // Initialize ReportViewer once the WPF visual tree (and WFH) is ready
+        this.Loaded += ReportDesignerControl_Loaded;
+
+        // Clean up WinForms resources when this control is unloaded
+        this.Unloaded += ReportDesignerControl_Unloaded;
     }
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+
+    private void ReportDesignerControl_Loaded(object sender, RoutedEventArgs e)
+    {
+        InitializeReportViewer();
+    }
+
+    private void ReportDesignerControl_Unloaded(object sender, RoutedEventArgs e)
+    {
+        // Unhook ViewModel listener to prevent memory leaks
+        if (_designerVm is not null)
+            _designerVm.PropertyChanged -= ViewModel_PropertyChanged;
+
+        // Explicitly dispose the WinForms viewer to free memory and prevent airspace leaks
+        _reportViewer?.Dispose();
+    }
+
+    // ── DataContext wiring ───────────────────────────────────────────────────
 
     private void ReportDesignerControl_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
+        // Unsubscribe from the old ViewModel
         if (e.OldValue is WizardViewModel oldVm)
-        {
             oldVm.PropertyChanged -= ViewModel_PropertyChanged;
-        }
 
-        if (e.NewValue is WizardViewModel newVm)
-        {
-            newVm.PropertyChanged += ViewModel_PropertyChanged;
-        }
+        // Subscribe to the new ViewModel
+        _designerVm = e.NewValue as WizardViewModel;
+        if (_designerVm is not null)
+            _designerVm.PropertyChanged += ViewModel_PropertyChanged;
 
         UpdatePropertyGridVisibility();
     }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(WizardViewModel.SelectedComponent))
+        switch (e.PropertyName)
         {
-            UpdatePropertyGridVisibility();
+            // ── Canvas designer ─────────────────────────────────────────────
+            case nameof(WizardViewModel.SelectedComponent):
+                UpdatePropertyGridVisibility();
+                break;
+
+            // ── Live Preview tab ────────────────────────────────────────────
+            // When the ViewModel raises either PreviewData or PreviewRdlcPath,
+            // dispatch to the UI thread and re-render the ReportViewer.
+            case nameof(WizardViewModel.PreviewData):
+            case nameof(WizardViewModel.PreviewRdlcPath):
+                Dispatcher.BeginInvoke(TryRenderPreview);
+                break;
         }
     }
+
+    // ── Properties panel visibility ──────────────────────────────────────────
 
     /// <summary>
     /// Synchronizes the visibility of properties panels and updates the Type Badge indicator.
@@ -60,6 +111,12 @@ public partial class ReportDesignerControl : UserControl
         var vm = DataContext as WizardViewModel;
         if (vm != null && vm.SelectedComponent != null)
         {
+            // Auto-open the properties sidebar if an element is selected
+            if (PropertiesToggle != null && PropertiesToggle.IsChecked != true)
+            {
+                PropertiesToggle.IsChecked = true;
+            }
+
             NoSelectionPlaceholder.Visibility = Visibility.Collapsed;
             PropertiesForm.Visibility = Visibility.Visible;
             TypeBadgeBorder.Visibility = Visibility.Visible;
@@ -77,7 +134,73 @@ public partial class ReportDesignerControl : UserControl
         }
     }
 
-    // ================= DRAG-AND-DROP TOOLBOX INITIATION =================
+    // ── Live Preview: ReportViewer initialization & rendering ─────────────────
+
+    /// <summary>
+    /// Creates the Microsoft ReportViewer control and assigns it to the
+    /// <c>ReportHost</c> WindowsFormsHost in the "▶ Live Preview" tab.
+    /// Idempotent — safe to call multiple times.
+    /// </summary>
+    private void InitializeReportViewer()
+    {
+        if (_reportViewer is not null)
+            return;
+
+        _reportViewer = new Microsoft.Reporting.WinForms.ReportViewer
+        {
+            Dock                   = System.Windows.Forms.DockStyle.Fill,
+            ShowExportButton       = false,
+            ShowPrintButton        = false,
+            ShowRefreshButton      = false,
+            ShowZoomControl        = true,
+            ShowFindControls       = false,
+            ShowPageNavigationControls = true,
+            ShowBackButton         = false,
+            ShowDocumentMapButton  = false,
+            ShowParameterPrompts   = false,
+            ShowPromptAreaButton   = false,
+            ProcessingMode         = Microsoft.Reporting.WinForms.ProcessingMode.Local
+        };
+
+        // Assign to the WindowsFormsHost declared in the XAML "▶ Live Preview" tab
+        ReportHost.Child = _reportViewer;
+    }
+
+    /// <summary>
+    /// Renders the RDLC report inside the ReportViewer using the latest
+    /// <see cref="WizardViewModel.PreviewData"/> and <see cref="WizardViewModel.PreviewRdlcPath"/>.
+    /// No-ops if either value is missing, preventing partial-render crashes.
+    /// </summary>
+    private void TryRenderPreview()
+    {
+        // Guard: viewer and VM must both be ready
+        if (_reportViewer is null || _designerVm is null)
+            return;
+
+        // Guard: both data and path must be populated before rendering
+        if (_designerVm.PreviewData is null ||
+            string.IsNullOrWhiteSpace(_designerVm.PreviewRdlcPath))
+            return;
+
+        try
+        {
+            ReportPreviewService.RenderLocalReport(
+                _reportViewer,
+                _designerVm.PreviewRdlcPath,
+                _designerVm.PreviewData,
+                _designerVm.DynamicParameters);
+
+            // Ensure the host is visible now that content is loaded
+            ReportHost.Visibility = Visibility.Visible;
+        }
+        catch (Exception ex)
+        {
+            // Surface render errors back to the ViewModel so the UI can display them
+            _designerVm.PreviewError = $"Report render failed: {ex.Message}";
+        }
+    }
+
+    // ── Drag-and-drop toolbox initiation ─────────────────────────────────────
 
     private void ToolboxItem_MouseMove(object sender, MouseEventArgs e)
     {
@@ -89,31 +212,21 @@ public partial class ReportDesignerControl : UserControl
         }
     }
 
-    // ================= INTERACTIVE CANVAS DROP EVENT HANDLERS =================
+    // ── Interactive canvas drop event handlers ────────────────────────────────
 
     private void Canvas_DragEnter(object sender, DragEventArgs e)
     {
-        if (e.Data.GetDataPresent("ReportComponentType"))
-        {
-            e.Effects = DragDropEffects.Copy;
-        }
-        else
-        {
-            e.Effects = DragDropEffects.None;
-        }
+        e.Effects = e.Data.GetDataPresent("ReportComponentType")
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
         e.Handled = true;
     }
 
     private void Canvas_DragOver(object sender, DragEventArgs e)
     {
-        if (e.Data.GetDataPresent("ReportComponentType"))
-        {
-            e.Effects = DragDropEffects.Copy;
-        }
-        else
-        {
-            e.Effects = DragDropEffects.None;
-        }
+        e.Effects = e.Data.GetDataPresent("ReportComponentType")
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
         e.Handled = true;
     }
 
@@ -123,30 +236,30 @@ public partial class ReportDesignerControl : UserControl
         if (vm != null && e.Data.GetDataPresent("ReportComponentType"))
         {
             string type = e.Data.GetData("ReportComponentType") as string ?? "Text";
-            
+
             // Resolve correct drop coordinates relative to the DesignerCanvas layout
             Point dropPoint = e.GetPosition(DesignerCanvas);
 
             // Create appropriate strongly-typed model based on selection tag
             ReportComponent? newComp = type.ToLower() switch
             {
-                "text" => new TextComponent 
-                { 
-                    X = Math.Round(dropPoint.X / 4.0) * 4.0, 
-                    Y = Math.Round(dropPoint.Y / 4.0) * 4.0, 
-                    Text = "TextBlock Text" 
+                "text"  => new TextComponent
+                {
+                    X    = Math.Round(dropPoint.X / 4.0) * 4.0,
+                    Y    = Math.Round(dropPoint.Y / 4.0) * 4.0,
+                    Text = "TextBlock Text"
                 },
-                "image" => new ImageComponent 
-                { 
-                    X = Math.Round(dropPoint.X / 4.0) * 4.0, 
-                    Y = Math.Round(dropPoint.Y / 4.0) * 4.0 
+                "image" => new ImageComponent
+                {
+                    X = Math.Round(dropPoint.X / 4.0) * 4.0,
+                    Y = Math.Round(dropPoint.Y / 4.0) * 4.0
                 },
-                "line" => new LineComponent 
-                { 
-                    X = Math.Round(dropPoint.X / 4.0) * 4.0, 
-                    Y = Math.Round(dropPoint.Y / 4.0) * 4.0, 
-                    Length = 150, 
-                    Orientation = "Horizontal" 
+                "line"  => new LineComponent
+                {
+                    X           = Math.Round(dropPoint.X / 4.0) * 4.0,
+                    Y           = Math.Round(dropPoint.Y / 4.0) * 4.0,
+                    Length      = 150,
+                    Orientation = "Horizontal"
                 },
                 _ => null
             };
@@ -160,30 +273,28 @@ public partial class ReportDesignerControl : UserControl
         e.Handled = true;
     }
 
-    // ================= INTERACTIVE CANVAS MOUSE MOVE EVENT HANDLERS =================
+    // ── Interactive canvas mouse move event handlers ──────────────────────────
 
     private void CanvasItem_MouseDown(object sender, MouseButtonEventArgs e)
     {
         if (sender is FrameworkElement fe && fe.DataContext is ReportComponent component)
         {
-            // Set Selection in MVVM state
+            // Set selection in MVVM state
             if (DataContext is WizardViewModel vm)
-            {
                 vm.SelectedComponent = component;
-            }
 
             _isDragging = true;
-            _draggedComponent = component;
+            _draggedComponent  = component;
             _dragStartMousePos = e.GetPosition(DesignerCanvas);
             _dragStartComponentX = component.X;
             _dragStartComponentY = component.Y;
 
             fe.CaptureMouse();
-            fe.Focus(); // Force keyboard focus to the clicked element so Delete/Arrows work
-            
+            fe.Focus(); // Force keyboard focus so Delete/Arrows work
+
             // Hook move and release events dynamically
             fe.MouseMove += CanvasItem_MouseMove;
-            fe.MouseUp += CanvasItem_MouseUp;
+            fe.MouseUp   += CanvasItem_MouseUp;
 
             e.Handled = true;
         }
@@ -217,31 +328,31 @@ public partial class ReportDesignerControl : UserControl
         if (_isDragging && sender is FrameworkElement fe)
         {
             fe.MouseMove -= CanvasItem_MouseMove;
-            fe.MouseUp -= CanvasItem_MouseUp;
+            fe.MouseUp   -= CanvasItem_MouseUp;
 
             fe.ReleaseMouseCapture();
-            _isDragging = false;
+            _isDragging       = false;
             _draggedComponent = null;
 
             e.Handled = true;
         }
     }
 
-    // ================= RESIZING EVENT HANDLING =================
+    // ── Resizing event handling ───────────────────────────────────────────────
 
     private void ResizeHandle_DragDelta(object sender, DragDeltaEventArgs e)
     {
         if (sender is Thumb thumb && thumb.DataContext is ReportComponent component)
         {
-            double newWidth = component.Width + e.HorizontalChange;
+            double newWidth  = component.Width  + e.HorizontalChange;
             double newHeight = component.Height + e.VerticalChange;
 
             // Apply 4px grid snapping to resizing actions
-            newWidth = Math.Round(newWidth / 4.0) * 4.0;
+            newWidth  = Math.Round(newWidth  / 4.0) * 4.0;
             newHeight = Math.Round(newHeight / 4.0) * 4.0;
 
             // Enforce minimum dimension boundaries to prevent collapse
-            component.Width = Math.Max(12, newWidth);
+            component.Width  = Math.Max(12, newWidth);
             component.Height = Math.Max(12, newHeight);
 
             // Special handling for visual lines: length syncs with its current layout axis
@@ -249,12 +360,12 @@ public partial class ReportDesignerControl : UserControl
             {
                 if (line.Orientation.Equals("Horizontal", StringComparison.OrdinalIgnoreCase))
                 {
-                    line.Length = component.Width;
+                    line.Length      = component.Width;
                     component.Height = 10; // Lock perpendicular thickness axis
                 }
                 else
                 {
-                    line.Length = component.Height;
+                    line.Length     = component.Height;
                     component.Width = 10; // Lock perpendicular thickness axis
                 }
             }
@@ -263,19 +374,19 @@ public partial class ReportDesignerControl : UserControl
         }
     }
 
-    // ================= SHORTCUT KEYBOARD INPUT EVENT HANDLERS =================
+    // ── Shortcut keyboard input event handlers ────────────────────────────────
 
     private void Canvas_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (DataContext is WizardViewModel vm && vm.SelectedComponent != null)
         {
-            // 1. Handle Deletion
+            // 1. Handle deletion
             if (e.Key == Key.Delete)
             {
                 vm.DeleteComponentCommand.Execute(null);
                 e.Handled = true;
             }
-            // 2. Handle Nudging (Arrow Keys)
+            // 2. Handle nudging (arrow keys, 4px steps)
             else if (e.Key == Key.Left)
             {
                 vm.SelectedComponent.X = Math.Max(0, vm.SelectedComponent.X - 4);
@@ -299,7 +410,7 @@ public partial class ReportDesignerControl : UserControl
         }
     }
 
-    // ================= EXPORT PRINT LAYOUT EVENT HANDLERS =================
+    // ── Export / print layout event handlers ─────────────────────────────────
 
     private void PrintReport_Click(object sender, RoutedEventArgs e)
     {

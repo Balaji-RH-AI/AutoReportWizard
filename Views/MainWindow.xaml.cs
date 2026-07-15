@@ -45,13 +45,13 @@ namespace AutoReportWizard.Views
         private void NextButton_Click(object sender, RoutedEventArgs e)
         {
             // If they click Finish on the last step, close the application
-            if (_currentStep == 7)
+            if (_currentStep == 6)
             {
                 Application.Current.Shutdown();
                 return;
             }
 
-            if (_currentStep < 7)
+            if (_currentStep < 6)
             {
                 _currentStep++;
                 UpdateUI();
@@ -77,12 +77,11 @@ namespace AutoReportWizard.Views
                 case 3:
                 case 4: this.Width = 1150; this.Height = 760; break;
                 case 5:
-                case 6:
-                case 7: this.Width = 1300; this.Height = 850; break;
+                case 6: this.Width = 1300; this.Height = 850; break;
             }
 
             BackButton.IsEnabled = _currentStep > 1;
-            if (_currentStep == 7)
+            if (_currentStep == 6)
             {
                 NextButton.Content = "Finish ✓";
                 NextButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2E8B57")); // Sea Green
@@ -91,14 +90,13 @@ namespace AutoReportWizard.Views
             else
             {
                 NextButton.Content = "Next →";
-                NextButton.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#D4AF37")); // Gold
-                NextButton.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0A0A0A")); // Dark background color
+                NextButton.SetResourceReference(Control.BackgroundProperty, "AccentGoldBrush");
+                NextButton.SetResourceReference(Control.ForegroundProperty, "WindowBackgroundBrush");
             }
 
             UpdateSidebarStep(1, Icon1, Text1); UpdateSidebarStep(2, Icon2, Text2);
             UpdateSidebarStep(3, Icon3, Text3); UpdateSidebarStep(4, Icon4, Text4);
             UpdateSidebarStep(5, Icon5, Text5); UpdateSidebarStep(6, Icon6, Text6);
-            UpdateSidebarStep(7, Icon7, Text7);
 
             UserControl? view = _currentStep switch
             {
@@ -108,7 +106,6 @@ namespace AutoReportWizard.Views
                 4 => new Step4View { DataContext = AppState },
                 5 => new Step5View { DataContext = AppState },
                 6 => new Step6View { DataContext = AppState },
-                7 => new Step7View { DataContext = AppState },
                 _ => null
             };
 
@@ -121,13 +118,13 @@ namespace AutoReportWizard.Views
             {
                 icon.Text = "✓";
                 icon.Foreground = new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50));
-                text.Foreground = new SolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA));
+                text.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
             }
             else if (targetStep == _currentStep)
             {
                 icon.Text = "■";
-                icon.Foreground = new SolidColorBrush(Color.FromRgb(0xD4, 0xAF, 0x37));
-                text.Foreground = new SolidColorBrush(Colors.White);
+                icon.SetResourceReference(TextBlock.ForegroundProperty, "AccentGoldBrush");
+                text.SetResourceReference(TextBlock.ForegroundProperty, "TextPrimaryBrush");
             }
             else
             {

@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
 
-namespace AutoReportWizard.Views // Adjust namespace to match where you reference it
+namespace AutoReportWizard.Infrastructure
 {
     public class InverseBooleanToVisibilityConverter : IValueConverter
     {

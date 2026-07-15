@@ -73,13 +73,41 @@ namespace AutoReportWizard.Views
             _isManualMode = ManualModeToggle.IsChecked == true;
         }
 
+        // ── SafeBracket ────────────────────────────────────────────────────────
+        /// <summary>
+        /// Wraps an identifier in square brackets for safe T-SQL quoting.
+        /// Returns <c>null</c> if <paramref name="input"/> is null or whitespace,
+        /// preventing the generation of malformed <c>[]</c> tokens that crash SQL Server.
+        /// Any embedded closing-bracket characters are doubled per T-SQL escaping rules.
+        /// </summary>
+        private static string? SafeBracket(string? input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return null;
+
+            // Escape any embedded ] characters per SQL Server identifier rules
+            return "[" + input.Trim().Replace("]", "]]") + "]";
+        }
+
+        // ── BuildPreviewSql ────────────────────────────────────────────────────
         private static void BuildPreviewSql(WizardViewModel vm)
         {
             var sb = new StringBuilder();
-            var groupByFields = vm.Fields.Where(f => f.IsGroupBy).ToList();
+
+            // ── Identify fields that will form the GROUP BY clause ─────────────
+            // An explicit GroupBy field → always goes into GROUP BY.
+            // A non-aggregate field when any aggregates exist → also must be in GROUP BY.
+            bool hasAnyAggregate = vm.Fields.Any(f => f.Aggregate != AggregateFunction.None);
+
+            var groupByFields = vm.Fields
+                .Where(f => f.IsGroupBy ||
+                            (hasAnyAggregate && f.Aggregate == AggregateFunction.None && !f.IsGroupBy))
+                .ToList();
+
             bool hasGroupBy = groupByFields.Any();
 
-            sb.AppendLine("CREATE OR ALTER PROCEDURE dbo." + (string.IsNullOrWhiteSpace(vm.StoredProcName) ? "[ProcedureName]" : vm.StoredProcName));
+            sb.AppendLine("CREATE OR ALTER PROCEDURE dbo." +
+                          (string.IsNullOrWhiteSpace(vm.StoredProcName) ? "[ProcedureName]" : vm.StoredProcName));
             sb.AppendLine("AS");
             sb.AppendLine("BEGIN");
             sb.AppendLine();
@@ -94,20 +122,24 @@ namespace AutoReportWizard.Views
 
             sb.AppendLine("    SELECT");
 
+            // ── Build SELECT list — skip any field with a null-safe bracket ────
             var selectItems = vm.Fields
                 .OrderBy(f => f.DisplayOrder)
                 .Select(f =>
                 {
+                    string? safeName = SafeBracket(f.Name);
+                    if (safeName is null) return null;           // ← skip empty-name fields entirely
+
                     string expr = f.GetSelectExpression();
                     if (!expr.Contains(" AS ", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return $"        {expr} AS [{f.Name}]";
-                    }
+                        return $"        {expr} AS {safeName}";
+
                     return $"        {expr}";
                 })
+                .Where(item => item is not null)
                 .ToList();
 
-            if (!selectItems.Any())
+            if (selectItems.Count == 0)
             {
                 sb.AppendLine("        *");
             }
@@ -127,7 +159,8 @@ namespace AutoReportWizard.Views
             {
                 foreach (var join in vm.ConfiguredJoins)
                 {
-                    sb.AppendLine($"    INNER JOIN [{vm.DatabaseName}].[{schemaClause}].[{join.JoinedTable}] AS [{join.JoinedTable}] ON [{join.PrimaryTable}].[{join.PrimaryColumn}] = [{join.JoinedTable}].[{join.JoinedColumn}]");
+                    sb.AppendLine($"    INNER JOIN [{vm.DatabaseName}].[{schemaClause}].[{join.JoinedTable}] AS [{join.JoinedTable}]" +
+                                  $" ON [{join.PrimaryTable}].[{join.PrimaryColumn}] = [{join.JoinedTable}].[{join.JoinedColumn}]");
                 }
             }
 
@@ -138,7 +171,14 @@ namespace AutoReportWizard.Views
 
             if (hasGroupBy)
             {
-                sb.AppendLine("    GROUP BY " + string.Join(", ", groupByFields.Select(f => $"[{f.Name}]")));
+                // Only include fields that have a valid (non-null) safe bracket
+                var groupByTokens = groupByFields
+                    .Select(f => SafeBracket(f.Name))
+                    .Where(b => b is not null)
+                    .ToList();
+
+                if (groupByTokens.Count > 0)
+                    sb.AppendLine("    GROUP BY " + string.Join(", ", groupByTokens));
             }
 
             sb.AppendLine("    OPTION (RECOMPILE);");
@@ -147,6 +187,7 @@ namespace AutoReportWizard.Views
             vm.CustomSql = sb.ToString();
         }
 
+        // ── ParseCustomSql_Click ───────────────────────────────────────────────
         private async void ParseCustomSql_Click(object sender, RoutedEventArgs e)
         {
             if (DataContext is not WizardViewModel vm || string.IsNullOrWhiteSpace(vm.CustomSql)) return;
@@ -162,17 +203,24 @@ namespace AutoReportWizard.Views
 
                 pureQuery.AppendLine("SELECT");
 
-                var selectItems = vm.Fields.OrderBy(f => f.DisplayOrder).Select(f =>
-                {
-                    string expr = f.GetSelectExpression();
-                    if (!expr.Contains(" AS ", StringComparison.OrdinalIgnoreCase))
+                // ── Build SELECT list with SafeBracket guard ───────────────────
+                var selectItems = vm.Fields
+                    .OrderBy(f => f.DisplayOrder)
+                    .Select(f =>
                     {
-                        return $"    {expr} AS [{f.Name}]";
-                    }
-                    return $"    {expr}";
-                }).ToList();
+                        string? safeName = SafeBracket(f.Name);
+                        if (safeName is null) return null;      // ← skip empty-name fields
 
-                if (!selectItems.Any())
+                        string expr = f.GetSelectExpression();
+                        if (!expr.Contains(" AS ", StringComparison.OrdinalIgnoreCase))
+                            return $"    {expr} AS {safeName}";
+
+                        return $"    {expr}";
+                    })
+                    .Where(item => item is not null)
+                    .ToList();
+
+                if (selectItems.Count == 0)
                     pureQuery.AppendLine("    *");
                 else
                     pureQuery.AppendLine(string.Join(",\n", selectItems));
@@ -183,24 +231,40 @@ namespace AutoReportWizard.Views
                 if (vm.ConfiguredJoins.Any())
                 {
                     foreach (var join in vm.ConfiguredJoins)
-                        pureQuery.AppendLine($"INNER JOIN [{vm.DatabaseName}].[{schemaClause}].[{join.JoinedTable}] AS [{join.JoinedTable}] ON [{join.PrimaryTable}].[{join.PrimaryColumn}] = [{join.JoinedTable}].[{join.JoinedColumn}]");
+                        pureQuery.AppendLine($"INNER JOIN [{vm.DatabaseName}].[{schemaClause}].[{join.JoinedTable}] AS [{join.JoinedTable}]" +
+                                             $" ON [{join.PrimaryTable}].[{join.PrimaryColumn}] = [{join.JoinedTable}].[{join.JoinedColumn}]");
                 }
 
                 if (!string.IsNullOrWhiteSpace(vm.CustomWhereClause))
                     pureQuery.AppendLine($"WHERE {vm.CustomWhereClause.Trim()}");
 
-                var groupByFields = vm.Fields.Where(f => f.IsGroupBy).ToList();
+                // ── GROUP BY with SafeBracket guard ───────────────────────────
+                bool hasAnyAggregate = vm.Fields.Any(f => f.Aggregate != AggregateFunction.None);
+
+                var groupByFields = vm.Fields
+                    .Where(f => f.IsGroupBy ||
+                                (hasAnyAggregate && f.Aggregate == AggregateFunction.None && !f.IsGroupBy))
+                    .ToList();
+
                 if (groupByFields.Any())
-                    pureQuery.AppendLine("GROUP BY " + string.Join(", ", groupByFields.Select(f => $"[{f.Name}]")));
+                {
+                    var groupByTokens = groupByFields
+                        .Select(f => SafeBracket(f.Name))
+                        .Where(b => b is not null)
+                        .ToList();
+
+                    if (groupByTokens.Count > 0)
+                        pureQuery.AppendLine("GROUP BY " + string.Join(", ", groupByTokens));
+                }
 
                 var tempReport = new ReportDefinition
                 {
-                    ServerName = vm.Report.ServerName,
+                    ServerName  = vm.Report.ServerName,
                     DatabaseName = vm.Report.DatabaseName,
-                    AuthType = vm.Report.AuthType,
-                    Username = vm.Report.Username,
-                    Password = vm.Report.Password,
-                    CustomSql = pureQuery.ToString()
+                    AuthType    = vm.Report.AuthType,
+                    Username    = vm.Report.Username,
+                    Password    = vm.Report.Password,
+                    CustomSql   = pureQuery.ToString()
                 };
 
                 var customFields = await dbService.GetSchemaFromCustomSqlAsync(tempReport);
@@ -214,8 +278,9 @@ namespace AutoReportWizard.Views
                     vm.Fields.Add(field);
                 }
 
-                MessageBox.Show($"Successfully parsed {customFields.Count} fields from your custom SQL. They are now available in the Layout tab.",
-                                "SQL Parsed", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(
+                    $"Successfully parsed {customFields.Count} fields from your custom SQL. They are now available in the Layout tab.",
+                    "SQL Parsed", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
