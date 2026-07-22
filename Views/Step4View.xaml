@@ -5,353 +5,191 @@
              xmlns:models="clr-namespace:AutoReportWizard.Models"
              Background="Transparent">
 
-        <UserControl.Resources>
-                <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <Style x:Key="ToggleRow" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource WindowBackgroundBrush}"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="16,16"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style x:Key="ToggleLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+        <Style x:Key="ToggleDesc" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+    </UserControl.Resources>
 
-                <Style x:Key="ToggleRow"
-                                TargetType="Border">
-                        <Setter Property="Background"
-                                        Value="#1A1A1A"/>
-                        <Setter Property="CornerRadius"
-                                        Value="6"/>
-                        <Setter Property="Padding"
-                                        Value="16,12"/>
-                        <Setter Property="Margin"
-                                        Value="0,0,0,10"/>
-                        <Setter Property="BorderBrush"
-                                        Value="#333"/>
-                        <Setter Property="BorderThickness"
-                                        Value="1"/>
-                </Style>
+    <Grid Margin="32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-                <Style x:Key="ToggleLabel"
-                                TargetType="TextBlock">
-                        <Setter Property="Foreground"
-                                        Value="White"/>
-                        <Setter Property="FontSize"
-                                        Value="13"/>
-                        <Setter Property="VerticalAlignment"
-                                        Value="Center"/>
-                </Style>
+        <StackPanel Grid.Row="0" Margin="0,0,0,32">
+            <TextBlock Text="Header &amp; Footer Configuration" Foreground="{StaticResource TextPrimaryBrush}" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,8"/>
+            <TextBlock Text="Set your report title and configure footer elements." Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" TextWrapping="Wrap"/>
+        </StackPanel>
 
-                <Style x:Key="ToggleDesc"
-                                TargetType="TextBlock">
-                        <Setter Property="Foreground"
-                                        Value="#777"/>
-                        <Setter Property="FontSize"
-                                        Value="11"/>
-                </Style>
-        </UserControl.Resources>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3*"/>
+                    <ColumnDefinition Width="32"/>
+                    <ColumnDefinition Width="2*"/>
+                </Grid.ColumnDefinitions>
 
-        <Grid Margin="20">
-                <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
+                <StackPanel Grid.Column="0">
+                    <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="16" Padding="24" Margin="0,0,0,24">
+                        <StackPanel>
+                            <TextBlock Text="REPORT TITLE" Foreground="{StaticResource AccentBrush}" FontWeight="Medium" FontSize="12" Margin="0,0,0,8"/>
+                            <TextBox Text="{Binding ReportTitle, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,24"/>
 
-                <StackPanel Grid.Row="0"
-                                Margin="0,0,0,24">
-                        <TextBlock Text="Header &amp; Footer Configuration"
-                                   Foreground="White"
-                                   FontSize="26"
-                                   FontWeight="Bold"/>
-                        <TextBlock Text="Set your report title and configure footer elements."
-                                   Foreground="Gray"
-                                   FontSize="13"
-                                   Margin="0,5,0,0"
-                                   TextWrapping="Wrap"/>
+                            <TextBlock Text="SUBTITLE / DESCRIPTION" Foreground="{StaticResource AccentBrush}" FontWeight="Medium" FontSize="12" Margin="0,0,0,8"/>
+                            <TextBox Text="{Binding ReportSubtitle, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" MinLines="4" Margin="0,0,0,8"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="16" Padding="24" Margin="0,0,0,24">
+                        <StackPanel>
+                            <TextBlock Text="PAGE HEADER FIELD MAPPINGS" Foreground="{StaticResource AccentBrush}" FontWeight="Medium" FontSize="12" Margin="0,0,0,8"/>
+                            <TextBlock Text="Select dataset columns to populate the page header labels using SSRS expressions." Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,20"/>
+                            
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="24"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="SITE" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                    <ComboBox ItemsSource="{Binding Fields}" DisplayMemberPath="Name" SelectedValuePath="Name" SelectedValue="{Binding HeaderSiteField, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,16"/>
+                                    
+                                    <TextBlock Text="PROCESS DATE" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                    <ComboBox ItemsSource="{Binding Fields}" DisplayMemberPath="Name" SelectedValuePath="Name" SelectedValue="{Binding HeaderProcessDateField, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,16"/>
+                                    
+                                    <TextBlock Text="JULIAN DATE" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                    <ComboBox ItemsSource="{Binding Fields}" DisplayMemberPath="Name" SelectedValuePath="Name" SelectedValue="{Binding HeaderJulianField, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,16"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="WORKSOURCE" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                    <ComboBox ItemsSource="{Binding Fields}" DisplayMemberPath="Name" SelectedValuePath="Name" SelectedValue="{Binding HeaderWorksourceField, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,16"/>
+                                    
+                                    <TextBlock Text="LOAD NUMBER" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                    <ComboBox ItemsSource="{Binding Fields}" DisplayMemberPath="Name" SelectedValuePath="Name" SelectedValue="{Binding HeaderLoadField, UpdateSourceTrigger=PropertyChanged}"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="16" Padding="24" Margin="0,0,0,24">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,16">
+                                <TextBlock Text="REPORT PARAMETERS" Foreground="{StaticResource AccentBrush}" FontWeight="Medium" FontSize="12" VerticalAlignment="Center"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Content="+ Add Parameter" Command="{Binding AddParameterCommand}" Style="{StaticResource DarkBtn}" Padding="12,6" Margin="0,0,8,0" Cursor="Hand"/>
+                                    <Button Content="🗑 Remove" Command="{Binding RemoveParameterCommand}" CommandParameter="{Binding SelectedDynamicParameter}" Style="{StaticResource DarkBtn}" Foreground="#F43F5E" Padding="12,6" Cursor="Hand"/>
+                                </StackPanel>
+                            </DockPanel>
+                            <TextBlock Text="Define stored procedure parameters, prompt labels, and optional header mapping." Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,20"/>
+                            
+                            <Border Background="{StaticResource WindowBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="12">
+                                <DataGrid ItemsSource="{Binding DynamicParameters}" SelectedItem="{Binding SelectedDynamicParameter, UpdateSourceTrigger=PropertyChanged}"
+                                          AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column"
+                                          GridLinesVisibility="None" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}"
+                                          RowBackground="Transparent" AlternatingRowBackground="#0F172A" BorderThickness="0" MinHeight="180" MaxHeight="280" Margin="4">
+                                    <DataGrid.Resources>
+                                        <Style TargetType="DataGridColumnHeader">
+                                            <Setter Property="Background" Value="Transparent"/>
+                                            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                            <Setter Property="Padding" Value="12,8"/>
+                                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+                                            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                                        </Style>
+                                        <Style TargetType="DataGridCell">
+                                            <Setter Property="Padding" Value="8,4"/>
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="DataGridCell">
+                                                        <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}">
+                                                            <ContentPresenter VerticalAlignment="Center"/>
+                                                        </Border>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Style>
+                                    </DataGrid.Resources>
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Parameter Name" Binding="{Binding ParameterName, UpdateSourceTrigger=PropertyChanged}" Width="*"/>
+                                        <DataGridTemplateColumn Header="SQL Data Type" Width="*">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <ComboBox ItemsSource="{x:Static vm:WizardViewModel.SqlDataTypes}" SelectedItem="{Binding DataType, UpdateSourceTrigger=PropertyChanged}" Background="{StaticResource CardBackgroundBrush}" Margin="2"/>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                        <DataGridTextColumn Header="Prompt Label" Binding="{Binding PromptText, UpdateSourceTrigger=PropertyChanged}" Width="1.5*"/>
+                                        <DataGridCheckBoxColumn Header="Header" Binding="{Binding MapsToHeader, UpdateSourceTrigger=PropertyChanged}" Width="60"/>
+                                        <DataGridTemplateColumn Header="Zone" Width="*">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <ComboBox ItemsSource="{x:Static vm:WizardViewModel.HeaderZones}" SelectedItem="{Binding HeaderZone, UpdateSourceTrigger=PropertyChanged}" Background="{StaticResource CardBackgroundBrush}" Margin="2"/>
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Border>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
-                <ScrollViewer Grid.Row="1"
-                                VerticalScrollBarVisibility="Auto">
-                        <Grid>
-                                <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="3*"/>
-                                        <ColumnDefinition Width="50"/>
-                                        <ColumnDefinition Width="2*"/>
-                                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="2">
+                    <Border Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="16" Padding="24" Margin="0,0,0,24">
+                        <StackPanel>
+                            <TextBlock Text="FOOTER ELEMENTS" Foreground="{StaticResource AccentBrush}" FontWeight="Medium" FontSize="12" Margin="0,0,0,16"/>
 
-                                <StackPanel Grid.Column="0">
-                                        <TextBlock Text="Report Title"
-                                                   Foreground="#D4AF37"
-                                                   FontWeight="SemiBold"
-                                                   Margin="0,0,0,6"/>
-                                        <TextBox Text="{Binding ReportTitle, UpdateSourceTrigger=PropertyChanged}"
-                                                 Background="#1A1A1A"
-                                                 Foreground="White"
-                                                 BorderBrush="#444"
-                                                 Padding="10"
-                                                 FontSize="14"
-                                                 Margin="0,0,0,20"/>
+                            <Border Style="{StaticResource ToggleRow}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <TextBlock Text="⏱ Execution Time" Style="{StaticResource ToggleLabel}"/>
+                                        <TextBlock Text="Show time on the bottom left." Style="{StaticResource ToggleDesc}"/>
+                                    </StackPanel>
+                                    <CheckBox Grid.Column="1" VerticalAlignment="Center" IsChecked="{Binding IncludeExecutionTime}"/>
+                                </Grid>
+                            </Border>
 
-                                        <TextBlock Text="Subtitle / Description"
-                                                   Foreground="#D4AF37"
-                                                   FontWeight="SemiBold"
-                                                   Margin="0,0,0,6"/>
-                                        <TextBox Text="{Binding ReportSubtitle, UpdateSourceTrigger=PropertyChanged}"
-                                                 Background="#1A1A1A"
-                                                 Foreground="White"
-                                                 BorderBrush="#444"
-                                                 Padding="10"
-                                                 FontSize="13"
-                                                 AcceptsReturn="True"
-                                                 MinLines="4"
-                                                 Margin="0,0,0,20"/>
-
-                                        <TextBlock Text="Page Header Field Mappings"
-                                                   Foreground="#D4AF37"
-                                                   FontWeight="SemiBold"
-                                                   Margin="0,0,0,6"/>
-                                        <TextBlock Text="Select dataset columns to populate the page header labels using SSRS expressions."
-                                                   Foreground="#777"
-                                                   FontSize="11"
-                                                   Margin="0,0,0,10"
-                                                   TextWrapping="Wrap"/>
-                                        <Border Background="#151515"
-                                                BorderBrush="#333"
-                                                BorderThickness="1"
-                                                CornerRadius="6"
-                                                Padding="12"
-                                                Margin="0,0,0,20">
-                                                <StackPanel>
-                                                        <TextBlock Text="Site"
-                                                                        Foreground="White"
-                                                                        FontSize="13"
-                                                                        Margin="0,0,0,4"/>
-                                                        <ComboBox ItemsSource="{Binding Fields}"
-                                                                  DisplayMemberPath="Name"
-                                                                  SelectedValuePath="Name"
-                                                                  SelectedValue="{Binding HeaderSiteField, UpdateSourceTrigger=PropertyChanged}"
-                                                                  Background="#1A1A1A"
-                                                                  Foreground="White"
-                                                                  BorderBrush="#444"
-                                                                  Padding="8"
-                                                                  Margin="0,0,0,10"/>
-
-                                                        <TextBlock Text="Process Date"
-                                                                        Foreground="White"
-                                                                        FontSize="13"
-                                                                        Margin="0,0,0,4"/>
-                                                        <ComboBox ItemsSource="{Binding Fields}"
-                                                                  DisplayMemberPath="Name"
-                                                                  SelectedValuePath="Name"
-                                                                  SelectedValue="{Binding HeaderProcessDateField, UpdateSourceTrigger=PropertyChanged}"
-                                                                  Background="#1A1A1A"
-                                                                  Foreground="White"
-                                                                  BorderBrush="#444"
-                                                                  Padding="8"
-                                                                  Margin="0,0,0,10"/>
-
-                                                        <TextBlock Text="Julian Date"
-                                                                        Foreground="White"
-                                                                        FontSize="13"
-                                                                        Margin="0,0,0,4"/>
-                                                        <ComboBox ItemsSource="{Binding Fields}"
-                                                                  DisplayMemberPath="Name"
-                                                                  SelectedValuePath="Name"
-                                                                  SelectedValue="{Binding HeaderJulianField, UpdateSourceTrigger=PropertyChanged}"
-                                                                  Background="#1A1A1A"
-                                                                  Foreground="White"
-                                                                  BorderBrush="#444"
-                                                                  Padding="8"
-                                                                  Margin="0,0,0,10"/>
-
-                                                        <TextBlock Text="Worksource"
-                                                                        Foreground="White"
-                                                                        FontSize="13"
-                                                                        Margin="0,0,0,4"/>
-                                                        <ComboBox ItemsSource="{Binding Fields}"
-                                                                  DisplayMemberPath="Name"
-                                                                  SelectedValuePath="Name"
-                                                                  SelectedValue="{Binding HeaderWorksourceField, UpdateSourceTrigger=PropertyChanged}"
-                                                                  Background="#1A1A1A"
-                                                                  Foreground="White"
-                                                                  BorderBrush="#444"
-                                                                  Padding="8"
-                                                                  Margin="0,0,0,10"/>
-
-                                                        <TextBlock Text="Load Number"
-                                                                        Foreground="White"
-                                                                        FontSize="13"
-                                                                        Margin="0,0,0,4"/>
-                                                        <ComboBox ItemsSource="{Binding Fields}"
-                                                                  DisplayMemberPath="Name"
-                                                                  SelectedValuePath="Name"
-                                                                  SelectedValue="{Binding HeaderLoadField, UpdateSourceTrigger=PropertyChanged}"
-                                                                  Background="#1A1A1A"
-                                                                  Foreground="White"
-                                                                  BorderBrush="#444"
-                                                                  Padding="8"/>
-                                                </StackPanel>
-                                        </Border>
-
-                                        <TextBlock Text="Report Parameters"
-                                                   Foreground="#D4AF37"
-                                                   FontWeight="SemiBold"
-                                                   Margin="0,0,0,6"/>
-                                        <TextBlock Text="Define stored procedure parameters, prompt labels, and optional header mapping."
-                                                   Foreground="#777"
-                                                   FontSize="11"
-                                                   Margin="0,0,0,10"
-                                                   TextWrapping="Wrap"/>
-
-                                        <Border Background="#151515"
-                                                BorderBrush="#333"
-                                                BorderThickness="1"
-                                                CornerRadius="6"
-                                                Padding="12"
-                                                Margin="0,0,0,20">
-                                                <Grid>
-                                                        <Grid.RowDefinitions>
-                                                                <RowDefinition Height="Auto"/>
-                                                                <RowDefinition Height="*"/>
-                                                        </Grid.RowDefinitions>
-
-                                                        <WrapPanel Grid.Row="0"
-                                                                        Margin="0,0,0,10">
-                                                                <Button Content="➕ Add Parameter"
-                                                                        Command="{Binding AddParameterCommand}"
-                                                                        Background="#252525"
-                                                                        Foreground="#D4AF37"
-                                                                        BorderBrush="#444"
-                                                                        Padding="12,6"
-                                                                        Margin="0,0,8,0"
-                                                                        Cursor="Hand"/>
-                                                                <Button Content="🗑 Remove Selected"
-                                                                        Command="{Binding RemoveParameterCommand}"
-                                                                        CommandParameter="{Binding SelectedDynamicParameter}"
-                                                                        Background="#252525"
-                                                                        Foreground="#FF7777"
-                                                                        BorderBrush="#444"
-                                                                        Padding="12,6"
-                                                                        Cursor="Hand"/>
-                                                        </WrapPanel>
-
-                                                        <DataGrid Grid.Row="1"
-                                                                  ItemsSource="{Binding DynamicParameters}"
-                                                                  SelectedItem="{Binding SelectedDynamicParameter, UpdateSourceTrigger=PropertyChanged}"
-                                                                  AutoGenerateColumns="False"
-                                                                  CanUserAddRows="False"
-                                                                  CanUserDeleteRows="False"
-                                                                  HeadersVisibility="Column"
-                                                                  GridLinesVisibility="Horizontal"
-                                                                  Background="#1A1A1A"
-                                                                  Foreground="White"
-                                                                  RowBackground="#1A1A1A"
-                                                                  AlternatingRowBackground="#151515"
-                                                                  BorderBrush="#333"
-                                                                  BorderThickness="1"
-                                                                  MinHeight="180"
-                                                                  MaxHeight="280">
-
-                                                                <DataGrid.Resources>
-                                                                        <Style TargetType="DataGridColumnHeader">
-                                                                                <Setter Property="Background"
-                                                                                                Value="#252525"/>
-                                                                                <Setter Property="Foreground"
-                                                                                                Value="#D4AF37"/>
-                                                                                <Setter Property="FontWeight"
-                                                                                                Value="SemiBold"/>
-                                                                                <Setter Property="Padding"
-                                                                                                Value="10,8"/>
-                                                                                <Setter Property="BorderThickness"
-                                                                                                Value="0,0,1,1"/>
-                                                                                <Setter Property="BorderBrush"
-                                                                                                Value="#444444"/>
-                                                                                <Setter Property="HorizontalContentAlignment"
-                                                                                                Value="Left"/>
-                                                                        </Style>
-                                                                </DataGrid.Resources>
-
-                                                                <DataGrid.Columns>
-                                                                        <DataGridTextColumn Header="Parameter Name"
-                                                                                            Binding="{Binding ParameterName, UpdateSourceTrigger=PropertyChanged}"
-                                                                                            Width="*"/>
-
-                                                                        <DataGridTemplateColumn Header="SQL Data Type"
-                                                                                        Width="*">
-                                                                                <DataGridTemplateColumn.CellTemplate>
-                                                                                        <DataTemplate>
-                                                                                                <ComboBox ItemsSource="{x:Static vm:WizardViewModel.SqlDataTypes}"
-                                                                                                          SelectedItem="{Binding DataType, UpdateSourceTrigger=PropertyChanged}"
-                                                                                                          Background="#111"
-                                                                                                          Foreground="White"
-                                                                                                          BorderBrush="#444"/>
-                                                                                        </DataTemplate>
-                                                                                </DataGridTemplateColumn.CellTemplate>
-                                                                        </DataGridTemplateColumn>
-
-                                                                        <DataGridTextColumn Header="Prompt Label"
-                                                                                            Binding="{Binding PromptText, UpdateSourceTrigger=PropertyChanged}"
-                                                                                            Width="1.5*"/>
-
-                                                                        <DataGridCheckBoxColumn Header="Header"
-                                                                                                Binding="{Binding MapsToHeader, UpdateSourceTrigger=PropertyChanged}"
-                                                                                                Width="60"/>
-
-                                                                        <DataGridTemplateColumn Header="Zone"
-                                                                                        Width="*">
-                                                                                <DataGridTemplateColumn.CellTemplate>
-                                                                                        <DataTemplate>
-                                                                                                <ComboBox ItemsSource="{x:Static vm:WizardViewModel.HeaderZones}"
-                                                                                                          SelectedItem="{Binding HeaderZone, UpdateSourceTrigger=PropertyChanged}"
-                                                                                                          Background="#111"
-                                                                                                          Foreground="White"
-                                                                                                          BorderBrush="#444"/>
-                                                                                        </DataTemplate>
-                                                                                </DataGridTemplateColumn.CellTemplate>
-                                                                        </DataGridTemplateColumn>
-                                                                </DataGrid.Columns>
-                                                        </DataGrid>
-                                                </Grid>
-                                        </Border>
-                                </StackPanel>
-
-                                <StackPanel Grid.Column="2">
-                                        <TextBlock Text="Footer Elements"
-                                                   Foreground="#D4AF37"
-                                                   FontWeight="SemiBold"
-                                                   Margin="0,0,0,10"/>
-
-                                        <Border Style="{StaticResource ToggleRow}">
-                                                <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="*"/>
-                                                                <ColumnDefinition Width="Auto"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <StackPanel Grid.Column="0"
-                                                                        VerticalAlignment="Center">
-                                                                <TextBlock Text="⏱ Execution Time"
-                                                                                Style="{StaticResource ToggleLabel}"/>
-                                                                <TextBlock Text="Show time on the bottom left."
-                                                                                Style="{StaticResource ToggleDesc}"/>
-                                                        </StackPanel>
-                                                        <CheckBox Grid.Column="1"
-                                                                        VerticalAlignment="Center"
-                                                                        IsChecked="{Binding IncludeExecutionTime}"/>
-                                                </Grid>
-                                        </Border>
-
-                                        <Border Style="{StaticResource ToggleRow}">
-                                                <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="*"/>
-                                                                <ColumnDefinition Width="Auto"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <StackPanel Grid.Column="0"
-                                                                        VerticalAlignment="Center">
-                                                                <TextBlock Text="📄 Page Numbers"
-                                                                                Style="{StaticResource ToggleLabel}"/>
-                                                                <TextBlock Text="Show Page N of M on the bottom right."
-                                                                                Style="{StaticResource ToggleDesc}"/>
-                                                        </StackPanel>
-                                                        <CheckBox Grid.Column="1"
-                                                                        VerticalAlignment="Center"
-                                                                        IsChecked="{Binding IncludePageNumbers}"/>
-                                                </Grid>
-                                        </Border>
-                                </StackPanel>
-                        </Grid>
-                </ScrollViewer>
-        </Grid>
+                            <Border Style="{StaticResource ToggleRow}" Margin="0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <TextBlock Text="📄 Page Numbers" Style="{StaticResource ToggleLabel}"/>
+                                        <TextBlock Text="Show Page N of M on the bottom right." Style="{StaticResource ToggleDesc}"/>
+                                    </StackPanel>
+                                    <CheckBox Grid.Column="1" VerticalAlignment="Center" IsChecked="{Binding IncludePageNumbers}"/>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
 </UserControl>

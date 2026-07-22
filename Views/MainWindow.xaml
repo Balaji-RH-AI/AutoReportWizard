@@ -1,348 +1,145 @@
-﻿<Window x:Class="AutoReportWizard.Views.MainWindow"
+<Window x:Class="AutoReportWizard.Views.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:System.Windows.Controls"
         xmlns:local="clr-namespace:AutoReportWizard"
         Title="AutoReport Wizard"
-        MinHeight="600"
-        MinWidth="800"
+        MinHeight="650"
+        MinWidth="950"
         WindowStartupLocation="CenterScreen"
-        Background="{DynamicResource WindowBackgroundBrush}"
-        FontFamily="Segoe UI">
+        Background="{StaticResource WindowBackgroundBrush}"
+        FontFamily="Segoe UI"
+        BorderThickness="0">
 
     <Window.Resources>
         <controls:BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:InverseBoolConverter x:Key="InverseBoolConverter"/>
-
-        <Style x:Key="NavBtn"
-                TargetType="Button">
-            <Setter Property="FontSize"
-                    Value="14"/>
-            <Setter Property="FontWeight"
-                    Value="SemiBold"/>
-            <Setter Property="Cursor"
-                    Value="Hand"/>
-            <Setter Property="BorderThickness"
-                    Value="0"/>
-            <Setter Property="FocusVisualStyle"
-                    Value="{x:Null}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}"
-                                CornerRadius="4"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver"
-                                    Value="True">
-                                <Setter Property="Opacity"
-                                        Value="0.85"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled"
-                                    Value="False">
-                                <Setter Property="Opacity"
-                                        Value="0.3"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+        
+        <!-- Style template for the stepper dots -->
+        <Style x:Key="StepperDotStyle" TargetType="Border">
+            <Setter Property="Width" Value="12"/>
+            <Setter Property="Height" Value="12"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Background" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="Opacity" Value="0.25"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0"/>
         </Style>
-
-        <Style x:Key="SidebarText"
-                TargetType="FrameworkElement">
-            <Setter Property="VerticalAlignment"
-                    Value="Center"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsChecked, ElementName=SidebarToggle}"
-                        Value="True">
-                    <Setter Property="Visibility"
-                            Value="Collapsed"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="SidebarContainer"
-                TargetType="Border">
-            <Setter Property="Width"
-                    Value="260"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsChecked, ElementName=SidebarToggle}"
-                        Value="True">
-                    <Setter Property="Width"
-                            Value="65"/>
-                </DataTrigger>
-            </Style.Triggers>
+        
+        <!-- Style template for the stepper connectors -->
+        <Style x:Key="StepperConnectorStyle" TargetType="Border">
+            <Setter Property="Width" Value="32"/>
+            <Setter Property="Height" Value="2"/>
+            <Setter Property="Background" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="Opacity" Value="0.2"/>
+            <Setter Property="Margin" Value="12,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
     </Window.Resources>
 
+    <!-- Web-App Style Root Layout (No Margins, Full Bleed) -->
     <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Full-Bleed Header -->
+            <RowDefinition Height="*"/>    <!-- Dynamic Main Content -->
+        </Grid.RowDefinitions>
 
-        <Border Grid.Column="0"
-                Style="{StaticResource SidebarContainer}"
-                Background="#111111"
-                BorderBrush="#222"
-                BorderThickness="0,0,1,0"
-                CornerRadius="0">
+        <!-- Hidden State Holders for Code-Behind Compatibility -->
+        <StackPanel Visibility="Collapsed">
+            <TextBlock x:Name="Icon1" Text="□"/> <TextBlock x:Name="Text1"/>
+            <TextBlock x:Name="Icon2" Text="□"/> <TextBlock x:Name="Text2"/>
+            <TextBlock x:Name="Icon3" Text="□"/> <TextBlock x:Name="Text3"/>
+            <TextBlock x:Name="Icon4" Text="□"/> <TextBlock x:Name="Text4"/>
+            <TextBlock x:Name="Icon5" Text="□"/> <TextBlock x:Name="Text5"/>
+            <TextBlock x:Name="Icon6" Text="□"/> <TextBlock x:Name="Text6"/>
+        </StackPanel>
+
+        <!-- 1. WEB-STYLE HEADER (Top Bar, Stepper & Navigation) -->
+        <Border Grid.Row="0" 
+                Background="{StaticResource CardBackgroundBrush}" 
+                BorderBrush="#1A1A1A" 
+                BorderThickness="0,0,0,1" 
+                Padding="32,20">
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="70"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Row="0"
-                            Orientation="Horizontal"
-                            Margin="15,0,0,0"
-                            VerticalAlignment="Center">
-                    <ToggleButton x:Name="SidebarToggle"
-                                  Width="35"
-                                  Height="35"
-                                  Background="Transparent"
-                                  BorderThickness="0"
-                                  Cursor="Hand"
-                                  ToolTip="Toggle Sidebar">
-                        <ToggleButton.Template>
-                            <ControlTemplate TargetType="ToggleButton">
-                                <Border Background="Transparent"
-                                        CornerRadius="0">
-                                    <TextBlock Text="☰"
-                                               Foreground="#CCC"
-                                               FontSize="20"
-                                               HorizontalAlignment="Center"
-                                               VerticalAlignment="Center"/>
-                                </Border>
-                            </ControlTemplate>
-                        </ToggleButton.Template>
-                    </ToggleButton>
-                    <TextBlock Text="AutoReport Wizard"
-                               Style="{StaticResource SidebarText}"
-                               Foreground="White"
-                               FontSize="18"
-                               FontWeight="Bold"
-                               Margin="12,0,0,0"/>
+                <!-- Header / Connection Info -->
+                <Button Grid.Column="0" 
+                        Style="{StaticResource DarkBtn}"
+                        Padding="12,8"
+                        ToolTip="Change Connection"
+                        Click="ChangeConnection_Click"
+                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
+                        Background="Transparent" BorderThickness="0"
+                        HorizontalAlignment="Left">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="⚙️" FontSize="20" Foreground="{StaticResource AccentBrush}" Margin="0,0,12,0" VerticalAlignment="Center"/>
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
+                            <TextBlock Text="Target DB" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding DatabaseName}" Foreground="{StaticResource TextPrimaryBrush}" FontSize="13" TextTrimming="CharacterEllipsis" MaxWidth="150" FontWeight="Medium"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Button>
+
+                <!-- The Avant-Garde Stepper -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16,0">
+                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon1}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon1}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
+                    <Border Style="{StaticResource StepperConnectorStyle}"/>
+                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon2}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon2}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
+                    <Border Style="{StaticResource StepperConnectorStyle}"/>
+                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon3}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon3}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
+                    <Border Style="{StaticResource StepperConnectorStyle}"/>
+                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon4}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon4}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
+                    <Border Style="{StaticResource StepperConnectorStyle}"/>
+                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon5}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon5}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
+                    <Border Style="{StaticResource StepperConnectorStyle}"/>
+                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon6}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon6}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
                 </StackPanel>
 
-                <StackPanel Grid.Row="1"
-                        Margin="0,20,0,0">
-                    <Grid Margin="0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="65"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="Icon1"
-                                Grid.Column="0"
-                                Text="○"
-                                FontSize="18"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"/>
-                        <TextBlock x:Name="Text1"
-                                Grid.Column="1"
-                                Text="Target Environment"
-                                Style="{StaticResource SidebarText}"
-                                FontSize="14"
-                                FontWeight="SemiBold"/>
-                    </Grid>
+                <!-- Navigation Controls relocated to Top Right -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button x:Name="BackButton"
+                            Content="← Previous"
+                            Width="120"
+                            Style="{StaticResource DarkBtn}"
+                            IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
+                            Click="BackButton_Click"
+                            Margin="0,0,12,0"/>
 
-                    <Grid Margin="0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="65"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="Icon2"
-                                Grid.Column="0"
-                                Text="○"
-                                FontSize="18"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"/>
-                        <TextBlock x:Name="Text2"
-                                Grid.Column="1"
-                                Text="Dataset Definition"
-                                Style="{StaticResource SidebarText}"
-                                FontSize="14"
-                                FontWeight="SemiBold"/>
-                    </Grid>
-
-                    <Grid Margin="0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="65"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="Icon3"
-                                Grid.Column="0"
-                                Text="○"
-                                FontSize="18"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"/>
-                        <TextBlock x:Name="Text3"
-                                Grid.Column="1"
-                                Text="Group By &amp; Aggregation"
-                                Style="{StaticResource SidebarText}"
-                                FontSize="14"
-                                FontWeight="SemiBold"/>
-                    </Grid>
-
-                    <Grid Margin="0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="65"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="Icon4"
-                                Grid.Column="0"
-                                Text="○"
-                                FontSize="18"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"/>
-                        <TextBlock x:Name="Text4"
-                                Grid.Column="1"
-                                Text="Header &amp; Footer"
-                                Style="{StaticResource SidebarText}"
-                                FontSize="14"
-                                FontWeight="SemiBold"/>
-                    </Grid>
-
-                    <Grid Margin="0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="65"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="Icon5"
-                                Grid.Column="0"
-                                Text="○"
-                                FontSize="18"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"/>
-                        <TextBlock x:Name="Text5"
-                                Grid.Column="1"
-                                Text="Layout &amp; Generate"
-                                Style="{StaticResource SidebarText}"
-                                FontSize="14"
-                                FontWeight="SemiBold"/>
-                    </Grid>
-
-                    <Grid Margin="0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="65"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="Icon6"
-                                Grid.Column="0"
-                                Text="○"
-                                FontSize="18"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center"/>
-                        <TextBlock x:Name="Text6"
-                                Grid.Column="1"
-                                Text="Output &amp; Generate"
-                                Style="{StaticResource SidebarText}"
-                                FontSize="14"
-                                FontWeight="SemiBold"/>
-                    </Grid>
+                    <Button x:Name="NextButton"
+                            Content="Next →"
+                            Width="120"
+                            Style="{StaticResource NeoPillButton}"
+                            IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
+                            Click="NextButton_Click"/>
                 </StackPanel>
-
-                <Border Grid.Row="2"
-                        BorderBrush="#222"
-                        BorderThickness="0,1,0,0"
-                        Padding="0,15">
-                    <Button Background="Transparent"
-                            BorderThickness="0"
-                            Cursor="Hand"
-                            ToolTip="Change Connection"
-                            Click="ChangeConnection_Click"
-                            IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="65"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-
-                            <TextBlock Grid.Column="0"
-                                       Text="⚙️"
-                                       FontSize="20"
-                                       HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"
-                                       Foreground="{DynamicResource AccentBrush}"/>
-
-                            <StackPanel Grid.Column="1"
-                                        VerticalAlignment="Center"
-                                        Style="{StaticResource SidebarText}">
-                                <TextBlock Text="Change Connection"
-                                           Foreground="{DynamicResource AccentBrush}"
-                                           FontSize="13"
-                                           FontWeight="SemiBold"/>
-                                <TextBlock Text="{Binding DatabaseName}"
-                                           Foreground="#00FF88"
-                                           FontSize="11"
-                                           Margin="0,3,0,0"
-                                           TextTrimming="CharacterEllipsis"
-                                           MaxWidth="170"/>
-                            </StackPanel>
-                        </Grid>
-                    </Button>
-                </Border>
             </Grid>
         </Border>
 
-        <Grid Grid.Column="1"
-                Background="{DynamicResource WindowBackgroundBrush}">
+        <!-- 2. MAIN DYNAMIC CONTENT AREA -->
+        <Grid Grid.Row="1">
+            <ContentControl x:Name="MainContentArea"/>
 
-            <Grid Margin="40,40,40,90">
-                <ContentControl x:Name="MainContentArea"/>
-
-                <Grid Background="#B2000000"
-                      Panel.ZIndex="999"
-                      Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">
-                    <StackPanel HorizontalAlignment="Center"
-                            VerticalAlignment="Center">
-                        <ProgressBar IsIndeterminate="True"
-                                     Width="260"
-                                     Height="4"
-                                     Background="#222222"
-                                     Foreground="{DynamicResource AccentGoldBrush}"
-                                     Margin="0,0,0,16"/>
-                        <TextBlock Text="PROCESSING..."
-                                   Foreground="{DynamicResource AccentGoldBrush}"
-                                   FontSize="18"
-                                   FontWeight="Bold"
-                                   HorizontalAlignment="Center"/>
-                    </StackPanel>
-                </Grid>
-            </Grid>
-
-            <StackPanel Orientation="Horizontal"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Bottom"
-                        Margin="0,0,40,30"
-                        Panel.ZIndex="100">
-
-                <Button x:Name="BackButton"
-                        Content="← Back"
-                        Width="110"
-                        Padding="0,11"
-                        Margin="0,0,15,0"
-                        Style="{StaticResource NavBtn}"
-                        Background="#252525"
-                        Foreground="#CCC"
-                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
-                        Click="BackButton_Click"/>
-
-                <Button x:Name="NextButton"
-                        Content="Next →"
-                        Width="160"
-                        Padding="0,11"
-                        Style="{StaticResource NavBtn}"
-                        Background="{DynamicResource AccentGoldBrush}"
-                        Foreground="{DynamicResource WindowBackgroundBrush}"
-                        IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
-                        Click="NextButton_Click"/>
-            </StackPanel>
+            <!-- Processing Overlay -->
+            <Border Background="#B20F172A"
+                    Panel.ZIndex="999"
+                    Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <ProgressBar IsIndeterminate="True"
+                                 Width="260" Height="4"
+                                 Background="#1E293B"
+                                 Foreground="{StaticResource AccentBrush}"
+                                 Margin="0,0,0,16" BorderThickness="0"/>
+                    <TextBlock Text="PROCESSING..."
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               FontSize="14" FontWeight="SemiBold"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
         </Grid>
     </Grid>
 </Window>

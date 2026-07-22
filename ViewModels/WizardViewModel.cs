@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Data;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -657,14 +658,25 @@ public class WizardViewModel : INotifyPropertyChanged
         }
     }
 
-    private string? _previewRdlcPath;
-    /// <summary>Path to the temp RDLC file generated for Step 6 ReportViewer preview.</summary>
-    public string? PreviewRdlcPath
+    private Stream? _previewRdlcStream;
+    /// <summary>
+    /// In-memory RDLC XML stream generated for the Step 6 ReportViewer preview.
+    /// The setter disposes the previous stream (if any) before assigning the new one
+    /// to prevent unbounded MemoryStream accumulation during rapid render cycles.
+    /// </summary>
+    public Stream? PreviewRdlcStream
     {
-        get => _previewRdlcPath;
+        get => _previewRdlcStream;
         set
         {
-            _previewRdlcPath = value;
+            if (ReferenceEquals(_previewRdlcStream, value)) return;
+
+            // Safely dispose the outgoing stream. The try/catch prevents any
+            // ObjectDisposedException from racing UI thread renders.
+            try { _previewRdlcStream?.Dispose(); }
+            catch { /* best-effort disposal */ }
+
+            _previewRdlcStream = value;
             OnPropertyChanged();
         }
     }
@@ -833,6 +845,7 @@ public class WizardViewModel : INotifyPropertyChanged
 
         ReportComponent newComp = type.ToLower() switch
         {
+            "column" => new TabularColumnComponent { X = 50, Y = 200 },
             "text" => new TextComponent { X = 50, Y = 50, Text = "TextBlock Text" },
             "image" => new ImageComponent { X = 50, Y = 50 },
             "line" => new LineComponent { X = 50, Y = 50, Length = 150, Orientation = "Horizontal" },
@@ -857,75 +870,65 @@ public class WizardViewModel : INotifyPropertyChanged
         // Don't overwrite the canvas if the user has already started designing
         if (CanvasComponents.Count > 0) return;
 
-        // 1. Generate Report Title (Center Top)
+        // --- PAGE HEADER ZONE (Y: 0 to 180) ---
         if (!string.IsNullOrWhiteSpace(ReportTitle))
         {
-            CanvasComponents.Add(new TextComponent
-            {
-                Text = ReportTitle,
-                X = 250,
-                Y = 20,
-                Width = 300,
-                Height = 40,
-                FontSize = 22
-            });
+            CanvasComponents.Add(new TextComponent { Text = ReportTitle, X = 247, Y = 24, Width = 300, Height = 40, FontSize = 22 });
         }
 
-        // 2. Generate Report Subtitle (Center Top, below Title)
         if (!string.IsNullOrWhiteSpace(ReportSubtitle))
         {
-            CanvasComponents.Add(new TextComponent
-            {
-                Text = ReportSubtitle,
-                X = 250,
-                Y = 60,
-                Width = 300,
-                Height = 30,
-                FontSize = 14
-            });
+            CanvasComponents.Add(new TextComponent { Text = ReportSubtitle, X = 247, Y = 64, Width = 300, Height = 30, FontSize = 14 });
         }
 
-        // 3. Generate Header Mappings (Top Left)
-        double currentY = 20;
+        double currentY = 24;
         if (!string.IsNullOrWhiteSpace(HeaderSiteField))
         {
-            CanvasComponents.Add(new TextComponent { Text = $"Site: [={HeaderSiteField}]", X = 20, Y = currentY, Width = 200, Height = 25 });
-            currentY += 25;
+            CanvasComponents.Add(new TextComponent { Text = $"Site: [={HeaderSiteField}]", X = 24, Y = currentY, Width = 200, Height = 25 });
+            currentY += 24;
         }
         if (!string.IsNullOrWhiteSpace(HeaderProcessDateField))
         {
-            CanvasComponents.Add(new TextComponent { Text = $"Process: [={HeaderProcessDateField}]", X = 20, Y = currentY, Width = 200, Height = 25 });
-            currentY += 25;
+            CanvasComponents.Add(new TextComponent { Text = $"Process: [={HeaderProcessDateField}]", X = 24, Y = currentY, Width = 200, Height = 25 });
+            currentY += 24;
         }
         if (!string.IsNullOrWhiteSpace(HeaderJulianField))
         {
-            CanvasComponents.Add(new TextComponent { Text = $"Julian: [={HeaderJulianField}]", X = 20, Y = currentY, Width = 200, Height = 25 });
+            CanvasComponents.Add(new TextComponent { Text = $"Julian: [={HeaderJulianField}]", X = 24, Y = currentY, Width = 200, Height = 25 });
         }
 
-        // 4. Generate Footer Elements (Bottom of A4 page: Y = 1050)
+        // Add a separator line at the bottom of the header zone
+        CanvasComponents.Add(new LineComponent { X = 24, Y = 160, Length = 746, Orientation = "Horizontal" });
+
+        // --- REPORT BODY ZONE (Y: 180 to 973) ---
+        // Dynamically generate side-by-side columns for every selected field
+        double currentColumnX = 24;
+        foreach (var field in Fields)
+        {
+            CanvasComponents.Add(new TabularColumnComponent
+            {
+                HeaderString = field.Name,
+                BoundField = field.Name,
+                X = currentColumnX,
+                Y = 200
+            });
+            currentColumnX += 124; // 120 width + 4 padding
+        }
+
+        // --- PAGE FOOTER ZONE (Y: 973 to 1123) ---
+        // Add a separator line at the top of the footer zone
+        CanvasComponents.Add(new LineComponent { X = 24, Y = 990, Length = 746, Orientation = "Horizontal" });
+
         if (IncludeExecutionTime)
         {
-            CanvasComponents.Add(new TextComponent
-            {
-                Text = "Execution Time: [=Globals!ExecutionTime]",
-                X = 20,
-                Y = 1060,
-                Width = 250,
-                Height = 25
-            });
+            CanvasComponents.Add(new TextComponent { Text = "Execution Time: [=Globals!ExecutionTime]", X = 24, Y = 1010, Width = 250, Height = 25 });
         }
         if (IncludePageNumbers)
         {
-            CanvasComponents.Add(new TextComponent
-            {
-                Text = "Page [=Globals!PageNumber] of [=Globals!TotalPages]",
-                X = 550,
-                Y = 1060,
-                Width = 200,
-                Height = 25
-            });
+            CanvasComponents.Add(new TextComponent { Text = "Page [=Globals!PageNumber] of [=Globals!TotalPages]", X = 550, Y = 1010, Width = 200, Height = 25 });
         }
     }
+    
     private async Task RunPreviewAsync()
     {
         if (IsPreviewRunning)
@@ -936,32 +939,35 @@ public class WizardViewModel : INotifyPropertyChanged
         IsPreviewRunning = true;
         IsBusy = true;
 
-        string? previousRdlcPath = PreviewRdlcPath;
-
         try
         {
             SyncFieldsToReport();
             SyncDynamicParametersToReport();
 
-            var (dataTable, rdlcPath) = await Task.Run(async () =>
+            // Execute the database query and RDLC serialization concurrently on a
+            // thread-pool thread to keep the WPF UI thread fully unblocked.
+            var (dataTable, rdlcStream) = await Task.Run(async () =>
             {
                 var table = await _databaseService.ExecuteStoredProcedurePreviewAsync(
                     Report, Report.Parameters, ct);
 
-                string path = await ReportPreviewService.ScaffoldRdlcToTempAsync(Report, ct);
-                return (table, path);
+                // SerializeToStreamAsync rewinds the MemoryStream to position 0
+                // before returning — ready for direct LoadReportDefinition consumption.
+                MemoryStream stream = await ReportPreviewService.SerializeToStreamAsync(Report, ct);
+                return (table, stream);
             }, ct);
 
-            PreviewData = dataTable;
-            PreviewRdlcPath = rdlcPath;
-            AppendLog($"Preview returned {PreviewData.Rows.Count} row(s) with RDLC at {rdlcPath}.");
-            ReportPreviewService.TryDeleteTempFile(previousRdlcPath);
+            PreviewData  = dataTable;
+            // Assigning PreviewRdlcStream disposes the previous stream automatically
+            // via the property setter, preventing MemoryStream leaks.
+            PreviewRdlcStream = rdlcStream;
+            AppendLog($"Preview returned {PreviewData.Rows.Count} row(s). RDLC serialized in-memory ({rdlcStream.Length:N0} bytes).");
         }
         catch (Exception ex)
         {
-            PreviewData = null;
-            PreviewRdlcPath = null;
-            PreviewError = ex.Message;
+            PreviewData       = null;
+            PreviewRdlcStream = null;
+            PreviewError      = ex.Message;
             AppendLog($"Preview failed: {ex.Message}");
         }
         finally

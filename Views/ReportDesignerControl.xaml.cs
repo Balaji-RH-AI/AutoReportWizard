@@ -82,6 +82,16 @@ public partial class ReportDesignerControl : UserControl
         UpdatePropertyGridVisibility();
     }
 
+    private void MoveThumb_DragDelta(object sender, DragDeltaEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is ReportComponent component)
+        {
+            const int GRID_SNAP = 8;
+            component.X = Math.Max(0, Math.Round((component.X + e.HorizontalChange) / GRID_SNAP) * GRID_SNAP);
+            component.Y = Math.Max(0, Math.Round((component.Y + e.VerticalChange) / GRID_SNAP) * GRID_SNAP);
+        }
+    }
+
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         switch (e.PropertyName)
@@ -92,10 +102,10 @@ public partial class ReportDesignerControl : UserControl
                 break;
 
             // ── Live Preview tab ────────────────────────────────────────────
-            // When the ViewModel raises either PreviewData or PreviewRdlcPath,
+            // When the ViewModel raises either PreviewData or PreviewRdlcStream,
             // dispatch to the UI thread and re-render the ReportViewer.
             case nameof(WizardViewModel.PreviewData):
-            case nameof(WizardViewModel.PreviewRdlcPath):
+            case nameof(WizardViewModel.PreviewRdlcStream):
                 Dispatcher.BeginInvoke(TryRenderPreview);
                 break;
         }
@@ -168,8 +178,10 @@ public partial class ReportDesignerControl : UserControl
 
     /// <summary>
     /// Renders the RDLC report inside the ReportViewer using the latest
-    /// <see cref="WizardViewModel.PreviewData"/> and <see cref="WizardViewModel.PreviewRdlcPath"/>.
+    /// <see cref="WizardViewModel.PreviewData"/> and <see cref="WizardViewModel.PreviewRdlcStream"/>.
     /// No-ops if either value is missing, preventing partial-render crashes.
+    /// The stream is deliberately not disposed here — it is owned by the ViewModel and
+    /// will be disposed when the next render cycle replaces it via the property setter.
     /// </summary>
     private void TryRenderPreview()
     {
@@ -177,16 +189,16 @@ public partial class ReportDesignerControl : UserControl
         if (_reportViewer is null || _designerVm is null)
             return;
 
-        // Guard: both data and path must be populated before rendering
+        // Guard: both data and stream must be populated before rendering
         if (_designerVm.PreviewData is null ||
-            string.IsNullOrWhiteSpace(_designerVm.PreviewRdlcPath))
+            _designerVm.PreviewRdlcStream is null)
             return;
 
         try
         {
-            ReportPreviewService.RenderLocalReport(
+            ReportPreviewService.RenderLocalReportFromStream(
                 _reportViewer,
-                _designerVm.PreviewRdlcPath,
+                _designerVm.PreviewRdlcStream,
                 _designerVm.PreviewData,
                 _designerVm.DynamicParameters);
 
@@ -241,8 +253,13 @@ public partial class ReportDesignerControl : UserControl
             Point dropPoint = e.GetPosition(DesignerCanvas);
 
             // Create appropriate strongly-typed model based on selection tag
-            ReportComponent? newComp = type.ToLower() switch
+           ReportComponent? newComp = type.ToLower() switch
             {
+                "column" => new TabularColumnComponent
+                {
+                    X = Math.Round(dropPoint.X / 4.0) * 4.0,
+                    Y = Math.Round(dropPoint.Y / 4.0) * 4.0
+                },
                 "text"  => new TextComponent
                 {
                     X    = Math.Round(dropPoint.X / 4.0) * 4.0,
