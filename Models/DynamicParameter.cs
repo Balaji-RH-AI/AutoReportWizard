@@ -96,8 +96,8 @@ public class DynamicParameter : INotifyPropertyChanged
         Name = ParameterName.StartsWith('@') ? ParameterName : $"@{ParameterName}",
         SqlDataType = DataType,
         RdlcDataType = RdlcDataType,
-        Value = Value,
-        AllowBlank = true
+        Value = Value == " " ? null : (string.IsNullOrWhiteSpace(Value) ? null : Value.Trim()),
+        AllowBlank = RdlcDataType == "String"
     };
 
     public event PropertyChangedEventHandler? PropertyChanged;

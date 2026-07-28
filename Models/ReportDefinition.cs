@@ -13,39 +13,51 @@ namespace AutoReportWizard.Models
     }
 
     /// <summary>
-    /// Root report definition â€” the single source of truth that flows through
-    /// all 5 wizard steps and is consumed directly by SqlGeneratorService
-    /// and RdlcXmlEngine. No JSON serialization at any boundary.
+    /// Root report definition - the single source of truth that flows through
+    /// all 5 wizard steps and is consumed directly by RdlcXmlEngine.
+    /// 
+    /// STORED PROCEDURE FIRST ARCHITECTURE:
+    /// This model strictly relies on ingesting existing Stored Procedures,
+    /// extracting their metadata, and generating RDLC files with
+    /// CommandType=StoredProcedure. No dynamic SQL generation.
     /// </summary>
     public class ReportDefinition
     {
-        // â”€â”€ Step 1: Target Environment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // -- Step 1: Target Environment --
         public string ServerName { get; set; } = string.Empty;
         public string DatabaseName { get; set; } = "master";
         public AuthenticationType AuthType { get; set; } = AuthenticationType.Windows;
         public string Username { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
 
-        // â”€â”€ Step 2: Dataset Definition â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // -- Step 2: Stored Procedure Selection --
         public string SchemaName { get; set; } = "dbo";
-        public string TableOrViewName { get; set; } = string.Empty;
+        public string StoredProcedureName { get; set; } = string.Empty;
         public string ReportName { get; set; } = string.Empty;
 
         /// <summary>
-        /// All fields in the report. Each field carries its SQL type,
-        /// .NET type, aggregation settings, and layout flags.
+        /// Output fields extracted from the selected Stored Procedure.
+        /// Populated via sys.dm_exec_describe_first_result_set during schema discovery.
+        /// </summary>
+        public List<ReportField> OutputFields { get; set; } = new();
+
+        /// <summary>
+        /// Input parameters extracted from the selected Stored Procedure.
+        /// Populated via sys.parameters during schema discovery.
+        /// </summary>
+        public List<ReportParameter> ProcedureParameters { get; set; } = new();
+
+        /// <summary>
+        /// All fields in the report (maintained for backward compatibility with canvas).
+        /// Synchronized from OutputFields after SP discovery.
         /// </summary>
         public List<ReportField> Fields { get; set; } = new();
+
         /// <summary>
-        /// Visually configured table joins for the template-driven SQL builder.
+        /// Captures the visual layout components from the WPF Designer (Step 5)
+        /// to accurately synchronize the generated RDLC with the user's drag-and-drop design.
         /// </summary>
-        public List<TableJoin> Joins { get; set; } = new();
-        /// <summary>
-        /// Stores the raw, user-edited T-SQL from the Step 3 Live Editor.
-        /// </summary>
-        public string CustomSql { get; set; } = string.Empty;
-        public string PreQueryLogic { get; set; } = string.Empty;
-        public string CustomWhereClause { get; set; } = string.Empty;
+        public List<ReportComponent> CanvasItems { get; set; } = new();
 
         /// <summary>
         /// User-defined input parameters for the Stored Procedure and RDLC file.
@@ -58,7 +70,7 @@ namespace AutoReportWizard.Models
         /// </summary>
         public List<DynamicParameter> DynamicParameters { get; set; } = new();
 
-        // â”€â”€ Step 4: Header & Footer Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // -- Step 4: Header & Footer Config --
         public string ReportTitle { get; set; } = string.Empty;
         public string ReportSubtitle { get; set; } = string.Empty;
         public bool IncludeExecutionTime { get; set; } = true;
@@ -73,7 +85,8 @@ namespace AutoReportWizard.Models
 
         public string StaticHeaderLeftLine1 { get; set; } = string.Empty;
         public string StaticHeaderLeftLine2 { get; set; } = string.Empty;
-        // â”€â”€ Step 5: Layout & Output â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        
+        // -- Step 5: Layout & Output --
         public string OutputDirectory { get; set; } =
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
@@ -81,7 +94,7 @@ namespace AutoReportWizard.Models
 
         private bool _dbInfoLoadAttempted;
 
-        // â”€â”€ Derived Properties â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // -- Derived Properties --
         public string StoredProcName =>
             "sp_" + System.Text.RegularExpressions.Regex.Replace(ReportName, @"[^A-Za-z0-9_]", "_");
 
@@ -115,7 +128,7 @@ namespace AutoReportWizard.Models
             return builder.ConnectionString;
         }
 
-        // â”€â”€ Guardrail Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // -- Guardrail Constants --
         public bool LoadDbInfoConfiguration(string? dbInfoPath = null)
         {
             if (_dbInfoLoadAttempted && string.IsNullOrWhiteSpace(dbInfoPath))
@@ -173,16 +186,15 @@ namespace AutoReportWizard.Models
 
             try
             {
-                // Decode the Base64 password from DBInfo.xml
                 byte[] data = Convert.FromBase64String(encryptedPassword);
                 return System.Text.Encoding.UTF8.GetString(data);
             }
             catch
             {
-                // Fallback to the raw string if it fails to parse
                 return encryptedPassword;
             }
         }
+        
         private static bool ShouldUseSqlAuthentication(string? auth, string username)
         {
             if (!string.IsNullOrWhiteSpace(auth))
@@ -219,39 +231,23 @@ namespace AutoReportWizard.Models
         {
             foreach (string name in names)
             {
-                string? value = common.Elements()
-                    .FirstOrDefault(e => IsElement(e, name))
-                    ?.Value;
-                if (!string.IsNullOrWhiteSpace(value))
-                    return value;
+                string? value = common.Elements().FirstOrDefault(e => IsElement(e, name))?.Value;
+                if (!string.IsNullOrWhiteSpace(value)) return value;
 
-                value = common.Attributes()
-                    .FirstOrDefault(a => IsName(a.Name.LocalName, name))
-                    ?.Value;
-                if (!string.IsNullOrWhiteSpace(value))
-                    return value;
+                value = common.Attributes().FirstOrDefault(a => IsName(a.Name.LocalName, name))?.Value;
+                if (!string.IsNullOrWhiteSpace(value)) return value;
 
-                value = dbAccess?.Attributes()
-                    .FirstOrDefault(a => IsName(a.Name.LocalName, name))
-                    ?.Value;
-                if (!string.IsNullOrWhiteSpace(value))
-                    return value;
+                value = dbAccess?.Attributes().FirstOrDefault(a => IsName(a.Name.LocalName, name))?.Value;
+                if (!string.IsNullOrWhiteSpace(value)) return value;
             }
 
             return null;
         }
 
-        private static bool IsElement(XElement element, string name) =>
-            IsName(element.Name.LocalName, name);
-
-        private static bool IsName(string actual, string expected) =>
-            string.Equals(
-                actual.Replace("_", string.Empty),
-                expected.Replace("_", string.Empty),
-                StringComparison.OrdinalIgnoreCase);
+        private static bool IsElement(XElement element, string name) => IsName(element.Name.LocalName, name);
+        private static bool IsName(string actual, string expected) => string.Equals(actual.Replace("_", string.Empty), expected.Replace("_", string.Empty), StringComparison.OrdinalIgnoreCase);
 
         public const int SchemaTimeoutSeconds = 60;
         public const int MaxDbRetries = 3;
     }
 }
-

@@ -224,6 +224,36 @@ public partial class ReportDesignerControl : UserControl
         }
     }
 
+    /// <summary>
+    /// Handles drag initiation from the Data Source tree (Parameters and Fields).
+    /// Creates appropriate drag data payloads for canvas drop handling.
+    /// </summary>
+    private void DataSourceItem_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton == MouseButtonState.Pressed && sender is FrameworkElement element)
+        {
+            string itemType = element.Tag?.ToString() ?? "Text";
+            object? dataContext = element.DataContext;
+
+            if (itemType == "Parameter" && dataContext is DynamicParameter param)
+            {
+                // Drag parameter - will create a TextBlock with parameter expression
+                DataObject dragData = new DataObject();
+                dragData.SetData("ReportComponentType", "ParameterText");
+                dragData.SetData("ParameterData", param);
+                DragDrop.DoDragDrop(element, dragData, DragDropEffects.Copy);
+            }
+            else if (itemType == "Field" && dataContext is ReportField field)
+            {
+                // Drag field - will create a TabularColumn bound to this field
+                DataObject dragData = new DataObject();
+                dragData.SetData("ReportComponentType", "FieldColumn");
+                dragData.SetData("FieldData", field);
+                DragDrop.DoDragDrop(element, dragData, DragDropEffects.Copy);
+            }
+        }
+    }
+
     // ── Interactive canvas drop event handlers ────────────────────────────────
 
     private void Canvas_DragEnter(object sender, DragEventArgs e)
@@ -253,17 +283,19 @@ public partial class ReportDesignerControl : UserControl
             Point dropPoint = e.GetPosition(DesignerCanvas);
 
             // Create appropriate strongly-typed model based on selection tag
-           ReportComponent? newComp = type.ToLower() switch
+            ReportComponent? newComp = type.ToLower() switch
             {
                 "column" => new TabularColumnComponent
                 {
                     X = Math.Round(dropPoint.X / 4.0) * 4.0,
                     Y = Math.Round(dropPoint.Y / 4.0) * 4.0
                 },
-                "text"  => new TextComponent
+                "fieldcolumn" => CreateFieldColumn(e, dropPoint),
+                "parametertext" => CreateParameterText(e, dropPoint),
+                "text" => new TextComponent
                 {
-                    X    = Math.Round(dropPoint.X / 4.0) * 4.0,
-                    Y    = Math.Round(dropPoint.Y / 4.0) * 4.0,
+                    X = Math.Round(dropPoint.X / 4.0) * 4.0,
+                    Y = Math.Round(dropPoint.Y / 4.0) * 4.0,
                     Text = "TextBlock Text"
                 },
                 "image" => new ImageComponent
@@ -288,6 +320,46 @@ public partial class ReportDesignerControl : UserControl
             }
         }
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// Creates a TabularColumnComponent from a dragged field with automatic binding.
+    /// </summary>
+    private TabularColumnComponent? CreateFieldColumn(DragEventArgs e, Point dropPoint)
+    {
+        if (e.Data.GetDataPresent("FieldData") && e.Data.GetData("FieldData") is ReportField field)
+        {
+            return new TabularColumnComponent
+            {
+                X = Math.Round(dropPoint.X / 4.0) * 4.0,
+                Y = Math.Round(dropPoint.Y / 4.0) * 4.0,
+                HeaderString = field.Name,
+                BoundField = field.Name,
+                Width = 120,
+                Height = 200
+            };
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Creates a TextComponent with parameter expression from a dragged parameter.
+    /// </summary>
+    private TextComponent? CreateParameterText(DragEventArgs e, Point dropPoint)
+    {
+        if (e.Data.GetDataPresent("ParameterData") && e.Data.GetData("ParameterData") is ReportParameter param)
+        {
+            string paramName = param.Name.TrimStart('@');
+            return new TextComponent
+            {
+                X = Math.Round(dropPoint.X / 4.0) * 4.0,
+                Y = Math.Round(dropPoint.Y / 4.0) * 4.0,
+                Text = $"=Parameters!{paramName}.Value",
+                Width = 150,
+                Height = 25
+            };
+        }
+        return null;
     }
 
     // ── Interactive canvas mouse move event handlers ──────────────────────────
@@ -332,9 +404,13 @@ public partial class ReportDesignerControl : UserControl
             targetX = Math.Round(targetX / 4.0) * 4.0;
             targetY = Math.Round(targetY / 4.0) * 4.0;
 
-            // Clamp positions to positive canvas workspace boundaries
-            _draggedComponent.X = Math.Max(0, targetX);
-            _draggedComponent.Y = Math.Max(0, targetY);
+            // BOUNDING BOX MATH: A4 Sheet width is roughly 794px, height is 1123px
+            double maxRight = 794 - _draggedComponent.Width;
+            double maxBottom = 1123 - _draggedComponent.Height;
+
+            // Clamp positions so they cannot exceed canvas boundaries
+            _draggedComponent.X = Math.Clamp(targetX, 0, maxRight);
+            _draggedComponent.Y = Math.Clamp(targetY, 0, maxBottom);
 
             e.Handled = true;
         }
@@ -364,26 +440,28 @@ public partial class ReportDesignerControl : UserControl
             double newWidth  = component.Width  + e.HorizontalChange;
             double newHeight = component.Height + e.VerticalChange;
 
-            // Apply 4px grid snapping to resizing actions
             newWidth  = Math.Round(newWidth  / 4.0) * 4.0;
             newHeight = Math.Round(newHeight / 4.0) * 4.0;
 
-            // Enforce minimum dimension boundaries to prevent collapse
-            component.Width  = Math.Max(12, newWidth);
-            component.Height = Math.Max(12, newHeight);
+            // BOUNDING BOX MATH: Prevent resizing beyond the right/bottom canvas edges
+            double maxWidth = 794 - component.X;
+            double maxHeight = 1123 - component.Y;
 
-            // Special handling for visual lines: length syncs with its current layout axis
+            component.Width  = Math.Clamp(newWidth, 12, maxWidth);
+            component.Height = Math.Clamp(newHeight, 12, maxHeight);
+
+            // Special handling for visual lines
             if (component is LineComponent line)
             {
                 if (line.Orientation.Equals("Horizontal", StringComparison.OrdinalIgnoreCase))
                 {
                     line.Length      = component.Width;
-                    component.Height = 10; // Lock perpendicular thickness axis
+                    component.Height = 10;
                 }
                 else
                 {
                     line.Length     = component.Height;
-                    component.Width = 10; // Lock perpendicular thickness axis
+                    component.Width = 10; 
                 }
             }
 

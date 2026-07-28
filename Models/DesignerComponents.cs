@@ -103,14 +103,13 @@ public abstract class ReportComponent : INotifyPropertyChanged
     }
 }
 
-/// <summary>
-/// Represents a customizable text label element.
-/// </summary>
 public class TextComponent : ReportComponent
 {
     private string _text = "TextBlock Text";
     private double _fontSize = 12;
     private string _fontFamily = "Segoe UI";
+    private string _fontWeight = "Normal";
+    private string _textAlign = "Left";
 
     public string Text
     {
@@ -151,13 +150,39 @@ public class TextComponent : ReportComponent
         }
     }
 
+    public string FontWeight
+    {
+        get => _fontWeight;
+        set
+        {
+            if (_fontWeight != value)
+            {
+                _fontWeight = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    // 🔥 Added TextAlign Property
+    public string TextAlign
+    {
+        get => _textAlign;
+        set
+        {
+            if (_textAlign != value)
+            {
+                _textAlign = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
     public TextComponent()
     {
         Width = 150;
         Height = 30;
     }
 }
-
 /// <summary>
 /// Represents an image element inside the report layout.
 /// </summary>

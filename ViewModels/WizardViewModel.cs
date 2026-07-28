@@ -23,7 +23,6 @@ namespace AutoReportWizard.ViewModels;
 public class WizardViewModel : INotifyPropertyChanged
 {
     private readonly DatabaseService _databaseService = new();
-
     private System.Threading.CancellationTokenSource? _currentCts;
 
     private System.Threading.CancellationToken RefreshCancellationToken()
@@ -35,13 +34,35 @@ public class WizardViewModel : INotifyPropertyChanged
     }
 
     // ── Core State ────────────────────────────────────────────────────────
+    private int _currentStep = 1;
+    public int CurrentStep
+    {
+        get => _currentStep;
+        set
+        {
+            if (_currentStep == value) return;
+            _currentStep = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsStep1));
+            OnPropertyChanged(nameof(IsStep2));
+            OnPropertyChanged(nameof(IsStep4));
+            OnPropertyChanged(nameof(IsStep5));
+            OnPropertyChanged(nameof(IsStep6));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+
+    public bool IsStep1 => CurrentStep == 1;
+    public bool IsStep2 => CurrentStep == 2;
+    // Step 3 intentionally skipped/removed
+    public bool IsStep4 => CurrentStep == 4;
+    public bool IsStep5 => CurrentStep == 5;
+    public bool IsStep6 => CurrentStep == 6;
+
     public ReportDefinition Report { get; } = new ReportDefinition();
 
     /// <summary>Observable list of fields — bound to all step views.</summary>
     public ObservableCollection<ReportField> Fields { get; } = new();
-
-    /// <summary>Fields available in the selected table (Left Box)</summary>
-    public ObservableCollection<ReportField> AvailableFields { get; } = new();
 
     /// <summary>Observable list of parameters — bound to Step 6 preview bar.</summary>
     public ObservableCollection<ReportParameter> Parameters { get; } = new();
@@ -91,30 +112,15 @@ public class WizardViewModel : INotifyPropertyChanged
     };
 
     /// <summary>Header zone options for parameter-to-header mapping.</summary>
-    public static IReadOnlyList<HeaderZone> HeaderZones { get; } =
-        Enum.GetValues<HeaderZone>().ToList();
+    public static IReadOnlyList<HeaderZone> HeaderZones { get; } = Enum.GetValues<HeaderZone>().ToList();
 
     // ── Step 5 Designer Dropdown Lists ───────────────────────────────
 
-    /// <summary>Options for Aggregate dropdown.</summary>
-    public static IReadOnlyList<AggregateFunction> AggregateFunctions { get; } =
-        Enum.GetValues<AggregateFunction>().ToList();
-
-    /// <summary>Options for Text Align dropdown.</summary>
-    public static IReadOnlyList<string> TextAlignOptions { get; } =
-        new List<string> { "Default", "Left", "Center", "Right" };
-
-    /// <summary>Options for Font Weight dropdown.</summary>
-    public static IReadOnlyList<string> FontWeightOptions { get; } =
-        new List<string> { "Normal", "Bold" };
+    public static IReadOnlyList<AggregateFunction> AggregateFunctions { get; } = Enum.GetValues<AggregateFunction>().ToList();
+    public static IReadOnlyList<string> TextAlignOptions { get; } = new List<string> { "Default", "Left", "Center", "Right" };
+    public static IReadOnlyList<string> FontWeightOptions { get; } = new List<string> { "Normal", "Bold" };
 
     // ──────────────────────────────────────────────────────────────────────
-
-    /// <summary>Join mappings configured for the current report.</summary>
-    public ObservableCollection<TableJoin> ConfiguredJoins { get; } = new();
-
-    /// <summary>Columns available in the currently selected base table.</summary>
-    public ObservableCollection<string> AvailableColumns { get; } = new();
 
     private bool _isBusy;
     public bool IsBusy
@@ -122,9 +128,7 @@ public class WizardViewModel : INotifyPropertyChanged
         get => _isBusy;
         set
         {
-            if (_isBusy == value)
-                return;
-
+            if (_isBusy == value) return;
             _isBusy = value;
             OnPropertyChanged();
         }
@@ -137,20 +141,23 @@ public class WizardViewModel : INotifyPropertyChanged
     public ICommand AddComponentCommand { get; }
     public ICommand DeleteComponentCommand { get; }
 
+    public ICommand NextStepCommand { get; }
+    public ICommand PreviousStepCommand { get; }
+    public ICommand GenerateReportCommand { get; }
+    public ICommand ChangeConnectionCommand { get; }
+    public ICommand FinishCommand { get; }
+    public ICommand LoadDatabasesCommand { get; }
+    
+    private readonly SqlGeneratorService _sqlGen = new();
+    private readonly SqlVerificationService _sqlVerify = new();
+    private readonly RdlcValidationService _rdlcVal = new();
+
     public WizardViewModel()
     {
         foreach (var parameter in Report.DynamicParameters)
             DynamicParameters.Add(parameter);
 
-        foreach (var join in Report.Joins)
-            ConfiguredJoins.Add(join);
-
-        ConfiguredJoins.CollectionChanged += (_, _) => SyncJoinsToReport();
         DynamicParameters.CollectionChanged += (_, _) => SyncDynamicParametersToReport();
-
-        ImportSpCommand = new RelayCommand(
-            async _ => await ImportSpSchemaAsync(),
-            _ => !string.IsNullOrWhiteSpace(ExistingSpName) && !IsBusy);
 
         RunPreviewCommand = new RelayCommand(
             async _ => await RunPreviewAsync(),
@@ -171,6 +178,37 @@ public class WizardViewModel : INotifyPropertyChanged
         DeleteComponentCommand = new RelayCommand(
             _ => DeleteComponent(),
             _ => SelectedComponent != null && !IsBusy);
+
+        // 🔥 STEP NAVIGATION: Skip Step 3 logic applied here
+        NextStepCommand = new RelayCommand(
+            _ => {
+                if (CurrentStep == 2) CurrentStep = 4;
+                else if (CurrentStep < 6) CurrentStep++;
+            },
+            _ => CurrentStep < 6 && !IsBusy);
+
+        PreviousStepCommand = new RelayCommand(
+            _ => {
+                if (CurrentStep == 4) CurrentStep = 2;
+                else if (CurrentStep > 1) CurrentStep--;
+            },
+            _ => CurrentStep > 1 && !IsBusy);
+
+        GenerateReportCommand = new RelayCommand(
+            async _ => await GenerateReportAsync(),
+            _ => !IsGenerating && !IsBusy && !string.IsNullOrWhiteSpace(ReportName));
+
+        ChangeConnectionCommand = new RelayCommand(
+            _ => { CurrentStep = 1; },
+            _ => !IsBusy);
+
+        FinishCommand = new RelayCommand(
+            _ => { System.Windows.Application.Current.Shutdown(); },
+            _ => !IsBusy);
+            
+        LoadDatabasesCommand = new RelayCommand(
+            async _ => await LoadDatabaseOptionsAsync(),
+            _ => !IsBusy);
     }
 
     // ── Step 1 Bindings (Target Environment & Credentials) ────────────────
@@ -213,7 +251,7 @@ public class WizardViewModel : INotifyPropertyChanged
     public bool IsWindowsAuth => AuthType == AuthenticationType.Windows;
 
 
-    // ── Step 2 Bindings (Dataset Definition) ──────────────────────────────
+    // ── Step 2 Bindings (Stored Procedure Selection) ──────────────────────────────
     public string ReportName
     {
         get => Report.ReportName;
@@ -226,61 +264,59 @@ public class WizardViewModel : INotifyPropertyChanged
         set { Report.SchemaName = value; OnPropertyChanged(); }
     }
 
-    public string TableOrViewName
+    public string StoredProcedureName
     {
-        get => Report.TableOrViewName;
-        set
-        {
-            Report.TableOrViewName = value;
-            OnPropertyChanged();
-
-            // Auto-generate SQL based on selection
-            if (string.IsNullOrWhiteSpace(value))
-                CustomSql = string.Empty;
-            else
-            {
-                // Detect schema prefix
-                string tableOrView = value;
-                string? schema = null;
-
-                if (value.Contains('.'))
-                {
-                    var parts = value.Split('.');
-                    if (parts.Length == 2)
-                    {
-                        schema = parts[0];
-                        tableOrView = parts[1];
-                    }
-                }
-
-                string schemaClause = string.IsNullOrEmpty(schema) ? "dbo" : schema;
-                string sanitizedName = tableOrView.Replace("[dbo].", "").Replace("dbo.", "").Trim();
-                CustomSql = $"SELECT * FROM [{schemaClause}].[{sanitizedName}]";
-            }
-        }
+        get => Report.StoredProcedureName;
+        set { Report.StoredProcedureName = value; OnPropertyChanged(); }
     }
-
-    private string _existingSpName = string.Empty;
-    public string ExistingSpName
-    {
-        get => _existingSpName;
-        set
-        {
-            _existingSpName = value;
-            OnPropertyChanged();
-            CommandManager.InvalidateRequerySuggested(); // Refresh button state
-        }
-    }
-
-    public ICommand ImportSpCommand { get; }
 
     // ── Cascading Dropdown Collections & Caching ──────────────────────────
     private readonly Dictionary<string, List<string>> _schemaCache = new();
-    private readonly Dictionary<string, List<string>> _tableCache = new();
+    private readonly Dictionary<string, List<string>> _spCache = new();
 
     public ObservableCollection<string> AvailableDatabases { get; } = new();
     public ObservableCollection<string> AvailableSchemas { get; } = new();
-    public ObservableCollection<string> AvailableTables { get; } = new();
+    public ObservableCollection<string> AvailableStoredProcedures { get; } = new();
+
+    // ── Step 2 Search Properties ──────────────────────────────────────────
+    private string _databaseSearchText = string.Empty;
+    public string DatabaseSearchText
+    {
+        get => _databaseSearchText;
+        set
+        {
+            _databaseSearchText = value;
+            OnPropertyChanged();
+            var view = System.Windows.Data.CollectionViewSource.GetDefaultView(AvailableDatabases);
+            if (view != null) view.Filter = item => string.IsNullOrWhiteSpace(value) || (item?.ToString()?.Contains(value, StringComparison.OrdinalIgnoreCase) ?? false);
+        }
+    }
+
+    private string _schemaSearchText = string.Empty;
+    public string SchemaSearchText
+    {
+        get => _schemaSearchText;
+        set
+        {
+            _schemaSearchText = value;
+            OnPropertyChanged();
+            var view = System.Windows.Data.CollectionViewSource.GetDefaultView(AvailableSchemas);
+            if (view != null) view.Filter = item => string.IsNullOrWhiteSpace(value) || (item?.ToString()?.Contains(value, StringComparison.OrdinalIgnoreCase) ?? false);
+        }
+    }
+
+    private string _spSearchText = string.Empty;
+    public string SpSearchText
+    {
+        get => _spSearchText;
+        set
+        {
+            _spSearchText = value;
+            OnPropertyChanged();
+            var view = System.Windows.Data.CollectionViewSource.GetDefaultView(AvailableStoredProcedures);
+            if (view != null) view.Filter = item => string.IsNullOrWhiteSpace(value) || (item?.ToString()?.Contains(value, StringComparison.OrdinalIgnoreCase) ?? false);
+        }
+    }
 
     private string _selectedDatabase = string.Empty;
     public string SelectedDatabase
@@ -288,17 +324,15 @@ public class WizardViewModel : INotifyPropertyChanged
         get => _selectedDatabase;
         set
         {
-            if (_selectedDatabase == value)
-                return;
-
+            if (_selectedDatabase == value) return;
             _selectedDatabase = value;
             Report.DatabaseName = value;
             OnPropertyChanged();
 
             AvailableSchemas.Clear();
-            AvailableTables.Clear();
+            AvailableStoredProcedures.Clear();
             SelectedSchema = string.Empty;
-            SelectedTable = string.Empty;
+            SelectedStoredProcedure = string.Empty;
 
             if (!string.IsNullOrWhiteSpace(value))
                 _ = LoadSchemasAsync();
@@ -311,36 +345,32 @@ public class WizardViewModel : INotifyPropertyChanged
         get => _selectedSchema;
         set
         {
-            if (_selectedSchema == value)
-                return;
-
+            if (_selectedSchema == value) return;
             _selectedSchema = value;
             Report.SchemaName = value;
             OnPropertyChanged();
 
-            AvailableTables.Clear();
-            SelectedTable = string.Empty;
+            AvailableStoredProcedures.Clear();
+            SelectedStoredProcedure = string.Empty;
 
             if (!string.IsNullOrWhiteSpace(value))
-                _ = LoadTablesAsync();
+                _ = LoadStoredProceduresAsync();
         }
     }
 
-    private string _selectedTable = string.Empty;
-    public string SelectedTable
+    private string _selectedStoredProcedure = string.Empty;
+    public string SelectedStoredProcedure
     {
-        get => _selectedTable;
+        get => _selectedStoredProcedure;
         set
         {
-            if (_selectedTable == value)
-                return;
-
-            _selectedTable = value;
-            Report.TableOrViewName = value;
+            if (_selectedStoredProcedure == value) return;
+            _selectedStoredProcedure = value;
+            Report.StoredProcedureName = value;
             OnPropertyChanged();
 
             if (!string.IsNullOrWhiteSpace(value))
-                _ = LoadFieldsAsync();
+                _ = LoadStoredProcedureMetadataAsync();
         }
     }
 
@@ -353,29 +383,32 @@ public class WizardViewModel : INotifyPropertyChanged
         var ct = RefreshCancellationToken();
         AvailableDatabases.Clear();
         AvailableSchemas.Clear();
-        AvailableTables.Clear();
+        AvailableStoredProcedures.Clear();
         _schemaCache.Clear();
-        _tableCache.Clear();
+        _spCache.Clear();
         IsBusy = true;
+        DiscoveryError = string.Empty;
 
         try
         {
-            var dbs = await _databaseService.GetDatabasesAsync(Report, ct);
+            string originalDb = Report.DatabaseName;
+            if (string.IsNullOrWhiteSpace(Report.DatabaseName))
+                Report.DatabaseName = "master";
+
+            var dbs = await Task.Run(async () => await _databaseService.GetDatabasesAsync(Report, ct), ct);
+            Report.DatabaseName = originalDb;
+
             foreach (var db in dbs)
                 AvailableDatabases.Add(db);
 
             if (!string.IsNullOrWhiteSpace(DatabaseName) && AvailableDatabases.Contains(DatabaseName))
-            {
                 SelectedDatabase = DatabaseName;
-            }
             else if (AvailableDatabases.Count > 0)
-            {
                 SelectedDatabase = AvailableDatabases[0];
-            }
         }
         catch (Exception ex)
         {
-            DiscoveryError = ex.Message;
+            DiscoveryError = $"Failed to load databases: {ex.Message}";
         }
         finally
         {
@@ -383,7 +416,7 @@ public class WizardViewModel : INotifyPropertyChanged
         }
     }
 
-    public async Task ImportSpSchemaAsync()
+    public async Task LoadStoredProcedureMetadataAsync()
     {
         var ct = RefreshCancellationToken();
         IsBusy = true;
@@ -391,35 +424,58 @@ public class WizardViewModel : INotifyPropertyChanged
 
         try
         {
-            string spName = ExistingSpName.Trim();
-
-            var testParams = new Dictionary<string, object>();
-
-            var fields = await _databaseService.ImportStoredProcedureSchemaAsync(
-                Report.BuildConnectionString(),
-                spName,
-                testParams,
-                ct);
-
-            AvailableFields.Clear();
+            // Step 1: Extract output fields
+            var outputFields = await _databaseService.GetStoredProcedureOutputFieldsAsync(Report, ct);
+            
+            Report.OutputFields.Clear();
             Fields.Clear();
-            ClearAvailableColumns();
 
-            foreach (var f in fields)
+            foreach (var field in outputFields)
             {
-                f.SourceDatabase = SelectedDatabase;
-                Fields.Add(f);
-                AvailableColumns.Add(f.Name);
+                field.SourceDatabase = SelectedDatabase;
+                field.SourceSchema = SelectedSchema;
+                field.SourceTable = SelectedStoredProcedure;
+                
+                Report.OutputFields.Add(field);
+                Fields.Add(field);
             }
+
+            // Step 2: Extract input parameters
+            var spParameters = await _databaseService.GetStoredProcedureParametersAsync(Report, ct);
+            
+            Report.ProcedureParameters.Clear();
+            DynamicParameters.Clear();
+
+            foreach (var param in spParameters)
+            {
+                Report.ProcedureParameters.Add(param);
+                
+                var dynParam = new DynamicParameter
+                {
+                    ParameterName = param.Name,
+                    DataType = param.SqlDataType,
+                    PromptText = param.Name.TrimStart('@'),
+                    Value = string.Empty,
+                    MapsToHeader = false
+                };
+                DynamicParameters.Add(dynParam);
+            }
+
+            SyncDynamicParametersToReport();
 
             if (string.IsNullOrWhiteSpace(ReportName))
             {
-                ReportName = spName.Replace("[", "").Replace("]", "").Split('.').Last();
+                ReportName = Report.StoredProcedureName.Replace("sp_", "").Replace("_", " ");
             }
+
+            CanvasComponents.Clear();
+            InitializeCanvasFromConfig();
+
+            AppendLog($"Loaded SP metadata: {outputFields.Count} output fields, {spParameters.Count} input parameters");
         }
         catch (Exception ex)
         {
-            DiscoveryError = $"SP Import Failed: {ex.Message}";
+            DiscoveryError = $"SP Metadata Load Failed: {ex.Message}";
         }
         finally
         {
@@ -430,12 +486,9 @@ public class WizardViewModel : INotifyPropertyChanged
     public async Task LoadSchemasAsync()
     {
         AvailableSchemas.Clear();
-        AvailableTables.Clear();
-        AvailableColumns.Clear();
-        AvailableFields.Clear();
+        AvailableStoredProcedures.Clear();
 
-        if (string.IsNullOrWhiteSpace(SelectedDatabase))
-            return;
+        if (string.IsNullOrWhiteSpace(SelectedDatabase)) return;
 
         var ct = RefreshCancellationToken();
 
@@ -443,19 +496,16 @@ public class WizardViewModel : INotifyPropertyChanged
         {
             if (_schemaCache.TryGetValue(SelectedDatabase, out var cachedSchemas))
             {
-                foreach (var schema in cachedSchemas)
-                    AvailableSchemas.Add(schema);
+                foreach (var schema in cachedSchemas) AvailableSchemas.Add(schema);
                 return;
             }
 
             IsBusy = true;
             var schemas = await _databaseService.GetSchemasAsync(Report, ct);
-
             var fetchedSchemas = schemas.ToList();
             _schemaCache[SelectedDatabase] = fetchedSchemas;
 
-            foreach (var schema in fetchedSchemas)
-                AvailableSchemas.Add(schema);
+            foreach (var schema in fetchedSchemas) AvailableSchemas.Add(schema);
         }
         catch (Exception ex)
         {
@@ -467,32 +517,29 @@ public class WizardViewModel : INotifyPropertyChanged
         }
     }
 
-    public async Task LoadTablesAsync()
+    public async Task LoadStoredProceduresAsync()
     {
-        AvailableTables.Clear();
-        AvailableColumns.Clear();
-        AvailableFields.Clear();
+        AvailableStoredProcedures.Clear();
 
-        if (string.IsNullOrWhiteSpace(SelectedSchema))
-            return;
+        if (string.IsNullOrWhiteSpace(SelectedSchema)) return;
 
         string cacheKey = $"{SelectedDatabase}.{SelectedSchema}";
         var ct = RefreshCancellationToken();
 
         try
         {
-            if (_tableCache.TryGetValue(cacheKey, out var cachedTables))
+            if (_spCache.TryGetValue(cacheKey, out var cachedSPs))
             {
-                foreach (var t in cachedTables) AvailableTables.Add(t);
+                foreach (var sp in cachedSPs) AvailableStoredProcedures.Add(sp);
                 return;
             }
 
             IsBusy = true;
-            var tables = await _databaseService.GetTablesAndViewsAsync(Report, SelectedSchema, ct);
-            var fetchedTables = tables.ToList();
-            _tableCache[cacheKey] = fetchedTables;
+            var sps = await _databaseService.GetStoredProceduresAsync(Report, SelectedSchema, ct);
+            var fetchedSPs = sps.ToList();
+            _spCache[cacheKey] = fetchedSPs;
 
-            foreach (var t in fetchedTables) AvailableTables.Add(t);
+            foreach (var sp in fetchedSPs) AvailableStoredProcedures.Add(sp);
         }
         catch (Exception ex)
         {
@@ -502,47 +549,6 @@ public class WizardViewModel : INotifyPropertyChanged
         {
             IsBusy = false;
         }
-    }
-
-    public async Task LoadFieldsAsync()
-    {
-        AvailableFields.Clear();
-        ClearAvailableColumns();
-
-        if (string.IsNullOrWhiteSpace(SelectedTable))
-            return;
-
-        var ct = RefreshCancellationToken();
-
-        try
-        {
-            IsBusy = true;
-            var fields = await _databaseService.GetSchemaAsync(Report, ct);
-            foreach (var f in fields)
-            {
-                f.SourceDatabase = SelectedDatabase;
-                f.SourceSchema = SelectedSchema;
-                f.SourceTable = SelectedTable;
-                AvailableFields.Add(f);
-                AvailableColumns.Add(f.Name);
-            }
-            UpdateJoinBaseTable(SelectedTable);
-        }
-        catch (Exception ex)
-        {
-            DiscoveryError = ex.Message;
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
-    // ── Step 3 Bindings (Live SQL Editor) ─────────────────────────────────
-    public string CustomSql
-    {
-        get => Report.CustomSql;
-        set { Report.CustomSql = value; OnPropertyChanged(); }
     }
 
     // ── Step 4 Bindings (Header & Footer) ─────────────────────────────────
@@ -580,18 +586,6 @@ public class WizardViewModel : INotifyPropertyChanged
     {
         get => Report.DynamicHeaderFieldName;
         set { Report.DynamicHeaderFieldName = value; OnPropertyChanged(); }
-    }
-
-    public string PreQueryLogic
-    {
-        get => Report.PreQueryLogic;
-        set { Report.PreQueryLogic = value; OnPropertyChanged(); }
-    }
-
-    public string CustomWhereClause
-    {
-        get => Report.CustomWhereClause;
-        set { Report.CustomWhereClause = value; OnPropertyChanged(); }
     }
 
     public string? HeaderSiteField
@@ -636,7 +630,6 @@ public class WizardViewModel : INotifyPropertyChanged
         set { Report.StaticHeaderLeftLine2 = value; OnPropertyChanged(); }
     }
 
-    // Real-time clock for the Step 5 preview pane
     public string CurrentPreviewTime => DateTime.Now.ToString("g");
 
     // ── Step 6 Bindings (Layout & Output) ─────────────────────────────────
@@ -659,11 +652,6 @@ public class WizardViewModel : INotifyPropertyChanged
     }
 
     private Stream? _previewRdlcStream;
-    /// <summary>
-    /// In-memory RDLC XML stream generated for the Step 6 ReportViewer preview.
-    /// The setter disposes the previous stream (if any) before assigning the new one
-    /// to prevent unbounded MemoryStream accumulation during rapid render cycles.
-    /// </summary>
     public Stream? PreviewRdlcStream
     {
         get => _previewRdlcStream;
@@ -671,10 +659,8 @@ public class WizardViewModel : INotifyPropertyChanged
         {
             if (ReferenceEquals(_previewRdlcStream, value)) return;
 
-            // Safely dispose the outgoing stream. The try/catch prevents any
-            // ObjectDisposedException from racing UI thread renders.
             try { _previewRdlcStream?.Dispose(); }
-            catch { /* best-effort disposal */ }
+            catch { }
 
             _previewRdlcStream = value;
             OnPropertyChanged();
@@ -685,11 +671,7 @@ public class WizardViewModel : INotifyPropertyChanged
     public DynamicParameter? SelectedDynamicParameter
     {
         get => _selectedDynamicParameter;
-        set
-        {
-            _selectedDynamicParameter = value;
-            OnPropertyChanged();
-        }
+        set { _selectedDynamicParameter = value; OnPropertyChanged(); }
     }
 
     private bool _isPreviewRunning;
@@ -756,14 +738,10 @@ public class WizardViewModel : INotifyPropertyChanged
         GenerationLog += $"[{DateTime.Now:HH:mm:ss}] {message}\n";
     }
 
-    // ── Sync Fields → Report.Fields ───────────────────────────────────────
     public void SyncFieldsToReport()
     {
         Report.Fields.Clear();
-
-        // SORT FIX: Order the fields from Left to Right based on their X coordinate on the canvas
         var sortedFields = Fields.OrderBy(f => f.CanvasX).ToList();
-
         for (int i = 0; i < sortedFields.Count; i++)
         {
             sortedFields[i].DisplayOrder = i;
@@ -771,7 +749,6 @@ public class WizardViewModel : INotifyPropertyChanged
         }
     }
 
-    // ── MVVM Boilerplate ──────────────────────────────────────────────────
     public void SyncParametersToReport()
     {
         Report.Parameters.Clear();
@@ -787,7 +764,6 @@ public class WizardViewModel : INotifyPropertyChanged
             DynamicParameters[i].HeaderOrder = i;
             Report.DynamicParameters.Add(DynamicParameters[i]);
         }
-
         SyncParametersToReport();
     }
 
@@ -807,35 +783,14 @@ public class WizardViewModel : INotifyPropertyChanged
             DataType = "varchar(50)",
             PromptText = "New Parameter"
         });
-
         SyncDynamicParametersToReport();
     }
 
     public void RemoveParameter(DynamicParameter? parameter)
     {
-        if (parameter is null || !DynamicParameters.Contains(parameter))
-            return;
-
+        if (parameter is null || !DynamicParameters.Contains(parameter)) return;
         DynamicParameters.Remove(parameter);
         SyncDynamicParametersToReport();
-    }
-
-    public void SyncJoinsToReport()
-    {
-        Report.Joins.Clear();
-        foreach (var join in ConfiguredJoins)
-            Report.Joins.Add(join);
-    }
-
-    public void UpdateJoinBaseTable(string baseTable)
-    {
-        foreach (var join in ConfiguredJoins.Where(j => string.IsNullOrWhiteSpace(j.PrimaryTable)))
-            join.PrimaryTable = baseTable;
-    }
-
-    public void ClearAvailableColumns()
-    {
-        AvailableColumns.Clear();
     }
 
     // ── Designer Helpers ──────────────────────────────────────────────────
@@ -864,75 +819,105 @@ public class WizardViewModel : INotifyPropertyChanged
             SelectedComponent = null;
         }
     }
+    
     // ── Designer Initialization ───────────────────────────────────────────
     public void InitializeCanvasFromConfig()
     {
-        // Don't overwrite the canvas if the user has already started designing
         if (CanvasComponents.Count > 0) return;
 
-        // --- PAGE HEADER ZONE (Y: 0 to 180) ---
-        if (!string.IsNullOrWhiteSpace(ReportTitle))
-        {
-            CanvasComponents.Add(new TextComponent { Text = ReportTitle, X = 247, Y = 24, Width = 300, Height = 40, FontSize = 22 });
+        // 1. LEFT ZONE (Site, Process, Julian)
+        double currentLeftY = 24;
+        if (!string.IsNullOrWhiteSpace(HeaderSiteField)) 
+        { 
+            CanvasComponents.Add(new TextComponent { Text = $"Site : {HeaderSiteField}", X = 24, Y = currentLeftY, Width = 200, Height = 20, FontSize = 9, FontWeight = "Bold", TextAlign = "Left" }); 
+            currentLeftY += 20; 
         }
+        if (!string.IsNullOrWhiteSpace(HeaderProcessDateField)) 
+        { 
+            CanvasComponents.Add(new TextComponent { Text = $"Process : {HeaderProcessDateField}", X = 24, Y = currentLeftY, Width = 200, Height = 20, FontSize = 9, FontWeight = "Bold", TextAlign = "Left" }); 
+            currentLeftY += 20; 
+        }
+        if (!string.IsNullOrWhiteSpace(HeaderJulianField)) 
+        { 
+            CanvasComponents.Add(new TextComponent { Text = $"Julian : {HeaderJulianField}", X = 24, Y = currentLeftY, Width = 200, Height = 20, FontSize = 9, FontWeight = "Bold", TextAlign = "Left" }); 
+        }
+
+        // 2. CENTER ZONE (Title, Subtitles)
+        double currentCenterY = 24;
+        string displayTitle = !string.IsNullOrWhiteSpace(ReportTitle) ? ReportTitle : (ReportName ?? "DYNAMIC REPORT");
+        CanvasComponents.Add(new TextComponent { Text = displayTitle.ToUpper(), X = 224, Y = currentCenterY, Width = 350, Height = 24, FontSize = 14, FontWeight = "Bold", TextAlign = "Center" });
+        currentCenterY += 24;
 
         if (!string.IsNullOrWhiteSpace(ReportSubtitle))
         {
-            CanvasComponents.Add(new TextComponent { Text = ReportSubtitle, X = 247, Y = 64, Width = 300, Height = 30, FontSize = 14 });
+            CanvasComponents.Add(new TextComponent { Text = ReportSubtitle, X = 224, Y = currentCenterY, Width = 350, Height = 20, FontSize = 10, FontWeight = "Bold", TextAlign = "Center" });
+            currentCenterY += 20;
+        }
+        if (!string.IsNullOrWhiteSpace(StaticHeaderLeftLine1))
+        {
+            CanvasComponents.Add(new TextComponent { Text = StaticHeaderLeftLine1, X = 224, Y = currentCenterY, Width = 350, Height = 20, FontSize = 10, FontWeight = "Bold", TextAlign = "Center" });
         }
 
-        double currentY = 24;
-        if (!string.IsNullOrWhiteSpace(HeaderSiteField))
-        {
-            CanvasComponents.Add(new TextComponent { Text = $"Site: [={HeaderSiteField}]", X = 24, Y = currentY, Width = 200, Height = 25 });
-            currentY += 24;
+        // 3. RIGHT ZONE (Worksource, Load, Page Number)
+        double currentRightY = 24;
+        if (!string.IsNullOrWhiteSpace(HeaderWorksourceField)) 
+        { 
+            CanvasComponents.Add(new TextComponent { Text = $"Worksource : {HeaderWorksourceField}", X = 570, Y = currentRightY, Width = 200, Height = 20, FontSize = 9, FontWeight = "Bold", TextAlign = "Right" }); 
+            currentRightY += 20; 
         }
-        if (!string.IsNullOrWhiteSpace(HeaderProcessDateField))
-        {
-            CanvasComponents.Add(new TextComponent { Text = $"Process: [={HeaderProcessDateField}]", X = 24, Y = currentY, Width = 200, Height = 25 });
-            currentY += 24;
-        }
-        if (!string.IsNullOrWhiteSpace(HeaderJulianField))
-        {
-            CanvasComponents.Add(new TextComponent { Text = $"Julian: [={HeaderJulianField}]", X = 24, Y = currentY, Width = 200, Height = 25 });
-        }
-
-        // Add a separator line at the bottom of the header zone
-        CanvasComponents.Add(new LineComponent { X = 24, Y = 160, Length = 746, Orientation = "Horizontal" });
-
-        // --- REPORT BODY ZONE (Y: 180 to 973) ---
-        // Dynamically generate side-by-side columns for every selected field
-        double currentColumnX = 24;
-        foreach (var field in Fields)
-        {
-            CanvasComponents.Add(new TabularColumnComponent
-            {
-                HeaderString = field.Name,
-                BoundField = field.Name,
-                X = currentColumnX,
-                Y = 200
-            });
-            currentColumnX += 124; // 120 width + 4 padding
-        }
-
-        // --- PAGE FOOTER ZONE (Y: 973 to 1123) ---
-        // Add a separator line at the top of the footer zone
-        CanvasComponents.Add(new LineComponent { X = 24, Y = 990, Length = 746, Orientation = "Horizontal" });
-
-        if (IncludeExecutionTime)
-        {
-            CanvasComponents.Add(new TextComponent { Text = "Execution Time: [=Globals!ExecutionTime]", X = 24, Y = 1010, Width = 250, Height = 25 });
+        if (!string.IsNullOrWhiteSpace(HeaderLoadField)) 
+        { 
+            CanvasComponents.Add(new TextComponent { Text = $"Load : {HeaderLoadField}", X = 570, Y = currentRightY, Width = 200, Height = 20, FontSize = 9, FontWeight = "Bold", TextAlign = "Right" }); 
+            currentRightY += 20; 
         }
         if (IncludePageNumbers)
         {
-            CanvasComponents.Add(new TextComponent { Text = "Page [=Globals!PageNumber] of [=Globals!TotalPages]", X = 550, Y = 1010, Width = 200, Height = 25 });
+            CanvasComponents.Add(new TextComponent { Text = "Page : [=Globals!PageNumber] / [=Globals!TotalPages]", X = 570, Y = currentRightY, Width = 200, Height = 20, FontSize = 9, FontWeight = "Bold", TextAlign = "Right" });
+        }
+
+        CanvasComponents.Add(new LineComponent { X = 24, Y = 96, Length = 746, Orientation = "Horizontal" });
+
+        InjectCanvasColumns();
+
+        CanvasComponents.Add(new LineComponent { X = 24, Y = 1050, Length = 746, Orientation = "Horizontal" });
+
+        if (IncludeExecutionTime) 
+        {
+            CanvasComponents.Add(new TextComponent { Text = "[=Globals!ExecutionTime]", X = 24, Y = 1060, Width = 250, Height = 20, FontSize = 9, FontWeight = "Bold", TextAlign = "Left" });
+        }
+    }
+
+    private void InjectCanvasColumns()
+    {
+        if (CanvasComponents.Any(c => c is TabularColumnComponent)) return;
+
+        if (!Fields.Any()) return;
+
+        double totalAvailableWidth = 746.0;
+        double colWidth = Math.Max(40, totalAvailableWidth / Fields.Count);
+
+        double currentColumnX = 24;
+        foreach (var field in Fields)
+        {
+            if (currentColumnX + colWidth > 770) break;
+            
+            CanvasComponents.Add(new TabularColumnComponent
+            {
+                HeaderString = string.IsNullOrWhiteSpace(field.CustomHeaderLabel) ? field.Name : (field.CustomHeaderLabel ?? string.Empty),
+                BoundField = field.Name,
+                X = currentColumnX,
+                Y = 120,
+                Width = colWidth,
+                Height = 40
+            });
+            
+            currentColumnX += colWidth;
         }
     }
     
     private async Task RunPreviewAsync()
     {
-        if (IsPreviewRunning)
-            return;
+        if (IsPreviewRunning) return;
 
         var ct = RefreshCancellationToken();
         PreviewError = string.Empty;
@@ -944,31 +929,58 @@ public class WizardViewModel : INotifyPropertyChanged
             SyncFieldsToReport();
             SyncDynamicParametersToReport();
 
-            // Execute the database query and RDLC serialization concurrently on a
-            // thread-pool thread to keep the WPF UI thread fully unblocked.
-            var (dataTable, rdlcStream) = await Task.Run(async () =>
+            var dataTable = await Task.Run(() => _databaseService.ExecuteStoredProcedurePreviewAsync(Report, Report.Parameters, ct), ct);
+
+            if (string.IsNullOrWhiteSpace(dataTable.TableName) || dataTable.TableName == "Table")
+                dataTable.TableName = "DataSet1";
+
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                var table = await _databaseService.ExecuteStoredProcedurePreviewAsync(
-                    Report, Report.Parameters, ct);
+                if (Fields.Count == 0 && dataTable.Columns.Count > 0)
+                {
+                    int order = 0;
+                    foreach (DataColumn col in dataTable.Columns)
+                    {
+                        var field = new ReportField
+                        {
+                            Name = col.ColumnName,
+                            SqlDataType = col.DataType.Name,
+                            DotNetType = col.DataType.FullName,
+                            IsDetailField = true,
+                            DisplayOrder = order++
+                        };
+                        Report.OutputFields.Add(field);
+                        Report.Fields.Add(field);
+                        Fields.Add(field);
+                    }
+                }
 
-                // SerializeToStreamAsync rewinds the MemoryStream to position 0
-                // before returning — ready for direct LoadReportDefinition consumption.
-                MemoryStream stream = await ReportPreviewService.SerializeToStreamAsync(Report, ct);
-                return (table, stream);
-            }, ct);
+                if (CanvasComponents.Count == 0) InitializeCanvasFromConfig();
+                InjectCanvasColumns();
+                Report.CanvasItems = CanvasComponents.ToList();
+            });
 
-            PreviewData  = dataTable;
-            // Assigning PreviewRdlcStream disposes the previous stream automatically
-            // via the property setter, preventing MemoryStream leaks.
+            MemoryStream rdlcStream = await Task.Run(() => ReportPreviewService.SerializeToStreamAsync(Report, ct), ct);
+
+            PreviewData = dataTable;
             PreviewRdlcStream = rdlcStream;
             AppendLog($"Preview returned {PreviewData.Rows.Count} row(s). RDLC serialized in-memory ({rdlcStream.Length:N0} bytes).");
         }
         catch (Exception ex)
         {
-            PreviewData       = null;
+            PreviewData = null;
             PreviewRdlcStream = null;
-            PreviewError      = ex.Message;
-            AppendLog($"Preview failed: {ex.Message}");
+            
+            string errorMessage = ex.Message;
+            if (ex.InnerException != null)
+            {
+                errorMessage += "\nDetails: " + ex.InnerException.Message;
+                if (ex.InnerException.InnerException != null)
+                    errorMessage += "\n" + ex.InnerException.InnerException.Message;
+            }
+            
+            PreviewError = errorMessage;
+            AppendLog($"Preview failed: {errorMessage}");
         }
         finally
         {
@@ -977,8 +989,62 @@ public class WizardViewModel : INotifyPropertyChanged
         }
     }
 
-    public event PropertyChangedEventHandler? PropertyChanged;
+    private async Task GenerateReportAsync()
+    {
+        SyncFieldsToReport();
+        SyncParametersToReport();
 
+        if (string.IsNullOrWhiteSpace(ReportName))
+        {
+            AppendLog("❌ Aborted — Report Name is required.");
+            return;
+        }
+
+        IsGenerating = true;
+        IsBusy = true;
+        GenerationLog = string.Empty;
+
+        try
+        {
+            Directory.CreateDirectory(OutputDirectory);
+
+            AppendLog("── Phase A: T-SQL Generation ──────────────────");
+            string generatedSql = await Task.Run(() => _sqlGen.Generate(Report));
+            AppendLog("  ✔ T-SQL script generated successfully.");
+
+            AppendLog("  Verifying syntax via SET PARSEONLY ON…");
+            var verifyResult = await _sqlVerify.VerifyAsync(Report, generatedSql);
+
+            if (!verifyResult.IsValid) AppendLog($"  ⚠️  SQL Verification Warning (Line {verifyResult.ErrorLine}): {verifyResult.ErrorMessage}");
+            else AppendLog("  ✔ Syntax verified.");
+
+            string sqlPath = Path.Combine(OutputDirectory, $"{Report.StoredProcName}.sql");
+            await File.WriteAllTextAsync(sqlPath, generatedSql);
+            AppendLog($"  📄 Saved: {sqlPath}\n");
+
+            AppendLog("── Phase B: RDLC XML Generation ───────────────");
+            var rdlcDoc = await Task.Run(() => RdlcXmlEngine.GenerateRdlcXml(Report));
+            AppendLog("  ✔ XDocument built successfully.");
+
+            string rdlcPath = Path.Combine(OutputDirectory, $"{Report.ReportName}.rdlc");
+            await Task.Run(() => rdlcDoc.Save(rdlcPath));
+            AppendLog($"  📄 Saved: {rdlcPath}\n");
+
+            AppendLog("══ Generation Complete ══════════════════════════");
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"❌ FATAL ERROR: {ex.Message}");
+            TelemetryService.RecordFailure(null, ex, Report.ReportName);
+        }
+        finally
+        {
+            IsGenerating = false;
+            IsBusy = false;
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
     protected void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }

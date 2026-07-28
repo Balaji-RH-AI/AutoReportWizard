@@ -1,17 +1,27 @@
 <Application x:Class="AutoReportWizard.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:AutoReportWizard"
              StartupUri="Views/MainWindow.xaml"
              DispatcherUnhandledException="Application_DispatcherUnhandledException">
+
     <Application.Resources>
+
         <ResourceDictionary>
+
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Themes/AppStyles.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
-            <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#1A1A1A"/>
-            <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#1A1A1A"/>
+            <SolidColorBrush
+                x:Key="{x:Static SystemColors.WindowBrushKey}"
+                Color="#1A1A1A"/>
+
+            <SolidColorBrush
+                x:Key="{x:Static SystemColors.ControlBrushKey}"
+                Color="#1A1A1A"/>
+
         </ResourceDictionary>
+
     </Application.Resources>
+
 </Application>

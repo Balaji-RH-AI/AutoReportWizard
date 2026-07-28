@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:System.Windows.Controls"
         xmlns:local="clr-namespace:AutoReportWizard"
+        xmlns:views="clr-namespace:AutoReportWizard.Views"
         Title="AutoReport Wizard"
         MinHeight="650"
         MinWidth="950"
@@ -15,7 +16,6 @@
         <controls:BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <local:InverseBoolConverter x:Key="InverseBoolConverter"/>
         
-        <!-- Style template for the stepper dots -->
         <Style x:Key="StepperDotStyle" TargetType="Border">
             <Setter Property="Width" Value="12"/>
             <Setter Property="Height" Value="12"/>
@@ -24,9 +24,25 @@
             <Setter Property="Opacity" Value="0.25"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Margin" Value="0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Tag}" Value="Active">
+                    <Setter Property="Width" Value="24"/>
+                    <Setter Property="Height" Value="8"/>
+                    <Setter Property="Background" Value="{StaticResource AccentGradient}"/>
+                    <Setter Property="Opacity" Value="1"/>
+                    <Setter Property="Effect">
+                        <Setter.Value>
+                            <DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/>
+                        </Setter.Value>
+                    </Setter>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding RelativeSource={RelativeSource Self}, Path=Tag}" Value="Completed">
+                    <Setter Property="Background" Value="#FFFFFF"/>
+                    <Setter Property="Opacity" Value="0.8"/>
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
         
-        <!-- Style template for the stepper connectors -->
         <Style x:Key="StepperConnectorStyle" TargetType="Border">
             <Setter Property="Width" Value="32"/>
             <Setter Property="Height" Value="2"/>
@@ -37,24 +53,12 @@
         </Style>
     </Window.Resources>
 
-    <!-- Web-App Style Root Layout (No Margins, Full Bleed) -->
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/> <!-- Full-Bleed Header -->
-            <RowDefinition Height="*"/>    <!-- Dynamic Main Content -->
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Hidden State Holders for Code-Behind Compatibility -->
-        <StackPanel Visibility="Collapsed">
-            <TextBlock x:Name="Icon1" Text="□"/> <TextBlock x:Name="Text1"/>
-            <TextBlock x:Name="Icon2" Text="□"/> <TextBlock x:Name="Text2"/>
-            <TextBlock x:Name="Icon3" Text="□"/> <TextBlock x:Name="Text3"/>
-            <TextBlock x:Name="Icon4" Text="□"/> <TextBlock x:Name="Text4"/>
-            <TextBlock x:Name="Icon5" Text="□"/> <TextBlock x:Name="Text5"/>
-            <TextBlock x:Name="Icon6" Text="□"/> <TextBlock x:Name="Text6"/>
-        </StackPanel>
-
-        <!-- 1. WEB-STYLE HEADER (Top Bar, Stepper & Navigation) -->
         <Border Grid.Row="0" 
                 Background="{StaticResource CardBackgroundBrush}" 
                 BorderBrush="#1A1A1A" 
@@ -67,12 +71,11 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Header / Connection Info -->
                 <Button Grid.Column="0" 
                         Style="{StaticResource DarkBtn}"
                         Padding="12,8"
                         ToolTip="Change Connection"
-                        Click="ChangeConnection_Click"
+                        Command="{Binding ChangeConnectionCommand}"
                         IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
                         Background="Transparent" BorderThickness="0"
                         HorizontalAlignment="Left">
@@ -85,46 +88,123 @@
                     </StackPanel>
                 </Button>
 
-                <!-- The Avant-Garde Stepper -->
+                <!-- Stepper UI bounded to CurrentStep (Skipping 3) -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16,0">
-                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon1}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon1}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
+                    <Border>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="1"><Setter Property="Tag" Value="Active"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="2"><Setter Property="Tag" Value="Completed"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="4"><Setter Property="Tag" Value="Completed"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="5"><Setter Property="Tag" Value="Completed"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="6"><Setter Property="Tag" Value="Completed"/></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
                     <Border Style="{StaticResource StepperConnectorStyle}"/>
-                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon2}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon2}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
+                    <Border>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="2"><Setter Property="Tag" Value="Active"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="4"><Setter Property="Tag" Value="Completed"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="5"><Setter Property="Tag" Value="Completed"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="6"><Setter Property="Tag" Value="Completed"/></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
                     <Border Style="{StaticResource StepperConnectorStyle}"/>
-                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon3}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon3}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
+                    <Border>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="4"><Setter Property="Tag" Value="Active"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="5"><Setter Property="Tag" Value="Completed"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="6"><Setter Property="Tag" Value="Completed"/></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
                     <Border Style="{StaticResource StepperConnectorStyle}"/>
-                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon4}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon4}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
+                    <Border>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="5"><Setter Property="Tag" Value="Active"/></DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="6"><Setter Property="Tag" Value="Completed"/></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
                     <Border Style="{StaticResource StepperConnectorStyle}"/>
-                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon5}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon5}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
-                    <Border Style="{StaticResource StepperConnectorStyle}"/>
-                    <Border><Border.Style><Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}"><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Icon6}" Value="■"><Setter Property="Width" Value="24"/><Setter Property="Height" Value="8"/><Setter Property="Background" Value="{StaticResource AccentGradient}"/><Setter Property="Opacity" Value="1"/><Setter Property="Effect"><Setter.Value><DropShadowEffect Color="#7C3AED" BlurRadius="15" ShadowDepth="0" Opacity="0.8"/></Setter.Value></Setter></DataTrigger><DataTrigger Binding="{Binding Text, ElementName=Icon6}" Value="✓"><Setter Property="Background" Value="#FFFFFF"/><Setter Property="Opacity" Value="0.8"/></DataTrigger></Style.Triggers></Style></Border.Style></Border>
+                    <Border>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource StepperDotStyle}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="6"><Setter Property="Tag" Value="Active"/></DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
                 </StackPanel>
 
-                <!-- Navigation Controls relocated to Top Right -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Button x:Name="BackButton"
                             Content="← Previous"
                             Width="120"
-                            Style="{StaticResource DarkBtn}"
-                            IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
-                            Click="BackButton_Click"
-                            Margin="0,0,12,0"/>
+                            Command="{Binding PreviousStepCommand}"
+                            Margin="0,0,12,0">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource DarkBtn}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsStep1}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
 
                     <Button x:Name="NextButton"
-                            Content="Next →"
                             Width="120"
-                            Style="{StaticResource NeoPillButton}"
-                            IsEnabled="{Binding IsBusy, Converter={StaticResource InverseBoolConverter}}"
-                            Click="NextButton_Click"/>
+                            Command="{Binding NextStepCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource NeoPillButton}">
+                                <Setter Property="Content" Value="Next →"/>
+                                <Setter Property="Command" Value="{Binding NextStepCommand}"/>
+                                <Setter Property="Background" Value="{StaticResource AccentGradient}"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                        <Setter Property="IsEnabled" Value="False"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="6">
+                                        <Setter Property="Content" Value="Finish ✓"/>
+                                        <Setter Property="Command" Value="{Binding FinishCommand}"/>
+                                        <Setter Property="Background" Value="#2E8B57"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- 2. MAIN DYNAMIC CONTENT AREA -->
         <Grid Grid.Row="1">
-            <ContentControl x:Name="MainContentArea"/>
+            <Grid>
+                <!-- 🔥 Step 3 is completely removed from the visual tree -->
+                <views:Step1View Visibility="{Binding IsStep1, Converter={StaticResource BoolToVis}}"/>
+                <views:Step2View Visibility="{Binding IsStep2, Converter={StaticResource BoolToVis}}"/>
+                <views:Step4View Visibility="{Binding IsStep4, Converter={StaticResource BoolToVis}}"/>
+                <views:Step5View Visibility="{Binding IsStep5, Converter={StaticResource BoolToVis}}"/>
+                <views:Step6View Visibility="{Binding IsStep6, Converter={StaticResource BoolToVis}}"/>
+            </Grid>
 
-            <!-- Processing Overlay -->
             <Border Background="#B20F172A"
                     Panel.ZIndex="999"
                     Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}">

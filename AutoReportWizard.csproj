@@ -14,8 +14,6 @@
   <ItemGroup>
     <!-- ADO.NET with Integrated Windows Authentication + connection pooling -->
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
-    <PackageReference Include="OllamaSharp" Version="5.4.25" />
-
     <!-- Polly 8.x — resilience pipelines with exponential backoff -->
     <PackageReference Include="Polly" Version="8.4.2" />
     <PackageReference Include="Polly.Core" Version="8.4.2" />

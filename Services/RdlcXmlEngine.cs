@@ -11,25 +11,24 @@ namespace AutoReportWizard.Services
     /// <summary>
     /// Programmatically builds an RDLC 2016 report definition (ReportViewerCore.WinForms /
     /// VS2019+ designer schema, xmlns "…/2016/01/reportdefinition") entirely from a
-    /// <see cref="ReportDefinition"/> instance. No static/mock markup — every Textbox value
-    /// is either a live <c>Fields!</c>/<c>Parameters!</c>/<c>Globals!</c> expression or a piece
-    /// of literal text the user actually configured in the wizard (report title, static header
-    /// lines, parameter prompt text).
+    /// <see cref="ReportDefinition"/> instance.
+    ///
+    /// STORED PROCEDURE FIRST ARCHITECTURE:
+    /// This engine generates RDLC files that use CommandType=StoredProcedure with proper
+    /// QueryParameters mapped to ReportParameters. The DataSet Fields are derived from
+    /// the SP's output schema (via sys.dm_exec_describe_first_result_set), and parameters
+    /// are extracted from sys.parameters. No dynamic SQL generation occurs.
     ///
     /// IMPLEMENTATION NOTES / ASSUMPTIONS (please read before wiring this in):
     ///
-    /// 1. Schema element order. RDL is a strict XSD sequence — children must appear in the
+    /// 1. Schema element order. RDL is a strict XSD sequence - children must appear in the
     ///    order the schema declares, or ReportViewer will throw "The definition of the report
-    ///    is not valid." This class follows the ordering used by real Visual Studio–generated
+    ///    is not valid." This class follows the ordering used by real Visual Studio-generated
     ///    .rdlc files: item-specific content first (e.g. Paragraphs for a Textbox, TablixBody/
     ///    TablixColumnHierarchy/TablixRowHierarchy for a Tablix), then position/size
-    ///    (Top/Left/Height/Width/ZIndex), then Style. No .NET/schema tooling was available in
-    ///    the environment this was written in to compile- or schema-validate the output, so
-    ///    please open the generated file in the RDLC designer (or run it through
-    ///    ReportViewerCore.WinForms once) before shipping.
+    ///    (Top/Left/Height/Width/ZIndex), then Style.
     ///
-    /// 2. Spanned/merged cells (the "BATCH NBR : 3292" band that stretches across every
-    ///    column). RDL Tablix cells don't have a ColSpan attribute — a spanned cell is
+    /// 2. Spanned/merged cells. RDL Tablix cells don't have a ColSpan attribute - a spanned cell is
     ///    represented by repeating an IDENTICAL Textbox definition in every TablixCell of that
     ///    row; the renderer detects the duplicate content across adjacent cells and merges
     ///    them visually into a single band. <see cref="BuildSpannedRow"/> implements that by
@@ -37,24 +36,13 @@ namespace AutoReportWizard.Services
     ///
     /// 3. Tablix row/column hierarchy. Every TablixMember that has no nested TablixMembers
     ///    maps to exactly one TablixRow, in document order. Members that DO have nested
-    ///    TablixMembers are pure grouping nodes and don't themselves produce a row. The row
-    ///    hierarchy built here is:
-    ///       [ static: column-header row ]
-    ///       [ dynamic: group member for the 1st IsGroupBy field
-    ///           [ static: group header row ("BATCH NBR : …", spanned) ]
-    ///           [ dynamic: next group level, or the Details group + one detail row ]
-    ///       ]
-    ///       [ static: grand-totals row ]  (only if IncludeGrandTotals)
-    ///    Multiple IsGroupBy fields nest recursively in DisplayOrder.
+    ///    TablixMembers are pure grouping nodes and don't themselves produce a row.
     ///
     /// 4. Local processing mode. Since this targets ReportViewerCore.WinForms hosted locally
-    ///    (no report server), the DataSource's ConnectionProperties are design-time metadata
-    ///    only — actual rows are supplied at runtime via
+    ///    (no report server), actual rows are supplied at runtime via
     ///    <c>LocalReport.DataSources.Add(new ReportDataSource("MainDataSet", table))</c> using
-    ///    the DataTable your SqlGeneratorService returns. The DataSet's Fields must match that
-    ///    table's column names, which is why they're derived from
-    ///    <see cref="ReportField.GetDatasetFieldName"/> — the exact same alias
-    ///    <see cref="ReportField.GetSelectExpression"/> produces in the generated T-SQL.
+    ///    the DataTable returned by ExecuteStoredProcedurePreviewAsync. The DataSet's Fields
+    ///    must match that table's column names.
     /// </summary>
     public static class RdlcXmlEngine
     {
@@ -148,9 +136,12 @@ namespace AutoReportWizard.Services
 
         private static XElement BuildDataSets(ReportDefinition definition)
         {
+            // Use OutputFields if available (from SP metadata), otherwise fall back to Fields
+            var sourceFields = definition.OutputFields.Any() ? definition.OutputFields : definition.Fields;
+            
             // Include every field that shows up either as a Tablix column or as a grouping
-            // key — both need a matching entry so `Fields!X.Value` resolves at render time.
-            var fields = definition.Fields
+            // key - both need a matching entry so `Fields!X.Value` resolves at render time.
+            var fields = sourceFields
                 .Where(f => f.IsDetailField || f.IsGroupBy)
                 .OrderBy(f => f.DisplayOrder)
                 .Select(f =>
@@ -162,16 +153,42 @@ namespace AutoReportWizard.Services
                         new XElement(Rd + "TypeName", string.IsNullOrWhiteSpace(f.DotNetType) ? "System.String" : f.DotNetType));
                 });
 
-            string commandText = string.IsNullOrWhiteSpace(definition.CustomSql)
-                ? "-- Populated by SqlGeneratorService at generation time; the DataSet's Fields\n-- below are what matter for local rendering — see LocalReport.DataSources at runtime."
-                : definition.CustomSql;
+            // Build the stored procedure command text
+            string spFullName = $"[{definition.SchemaName}].[{definition.StoredProcedureName}]";
+
+            // Build QueryParameters to wire ReportParameters into the SP execution
+            var queryParameters = new List<XElement>();
+            
+            // Use ProcedureParameters if available (extracted from SP metadata)
+            var sourceParams = definition.ProcedureParameters.Any() 
+                ? definition.ProcedureParameters 
+                : definition.Parameters;
+
+            foreach (var param in sourceParams)
+            {
+                string paramName = param.Name.StartsWith("@") ? param.Name : "@" + param.Name;
+                string rdlcParamName = paramName.TrimStart('@');
+                
+                queryParameters.Add(new XElement(Rdl + "QueryParameter",
+                    new XAttribute("Name", paramName),
+                    new XElement(Rdl + "Value", $"=Parameters!{rdlcParamName}.Value")));
+            }
+
+            var queryElement = new XElement(Rdl + "Query",
+                new XElement(Rdl + "DataSourceName", "MainDataSource"),
+                new XElement(Rdl + "CommandType", "StoredProcedure"),
+                new XElement(Rdl + "CommandText", spFullName));
+
+            // Only add QueryParameters if there are parameters
+            if (queryParameters.Any())
+            {
+                queryElement.Add(new XElement(Rdl + "QueryParameters", queryParameters));
+            }
 
             return new XElement(Rdl + "DataSets",
                 new XElement(Rdl + "DataSet",
                     new XAttribute("Name", "MainDataSet"),
-                    new XElement(Rdl + "Query",
-                        new XElement(Rdl + "DataSourceName", "MainDataSource"),
-                        new XElement(Rdl + "CommandText", commandText)),
+                    queryElement,
                     new XElement(Rdl + "Fields", fields)));
         }
 
@@ -181,9 +198,6 @@ namespace AutoReportWizard.Services
 
         private static XElement BuildReportParametersXml(ReportDefinition definition)
         {
-            // Parameters is meant to be synced from DynamicParameters before generation
-            // (see ReportDefinition's doc comment) — but fall back to deriving it here so
-            // this engine still works if that sync step hasn't run yet.
             var sourceParams = definition.Parameters is { Count: > 0 }
                 ? definition.Parameters
                 : definition.DynamicParameters.Select(dp => dp.ToReportParameter()).ToList();
@@ -210,11 +224,76 @@ namespace AutoReportWizard.Services
         }
 
         // ══════════════════════════════════════════════════════════════════════════════
+        // Visual Canvas Conversion Helpers
+        // ══════════════════════════════════════════════════════════════════════════════
+        
+        private static XElement? BuildVisualItem(ReportComponent c, double offsetY = 0)
+        {
+            double top = c.Y - offsetY;
+            
+            if (c is TextComponent tc)
+            {
+                return BuildTextbox($"Txt_{c.Id:N}", ParseLiteralOrExpr(tc.Text),
+                    align: "Left", fontSize: $"{tc.FontSize}pt", 
+                    top: RdlMeasure.PixelsToIn(top), left: RdlMeasure.PixelsToIn(c.X),
+                    width: RdlMeasure.PixelsToIn(c.Width), height: RdlMeasure.PixelsToIn(c.Height));
+            }
+            if (c is LineComponent lc)
+            {
+                return new XElement(Rdl + "Line",
+                    new XAttribute("Name", $"Line_{c.Id:N}"),
+                    new XElement(Rdl + "Top", RdlMeasure.PixelsToIn(top)),
+                    new XElement(Rdl + "Left", RdlMeasure.PixelsToIn(c.X)),
+                    new XElement(Rdl + "Height", RdlMeasure.PixelsToIn(lc.Orientation == "Vertical" ? lc.Length : 0)),
+                    new XElement(Rdl + "Width", RdlMeasure.PixelsToIn(lc.Orientation == "Horizontal" ? lc.Length : 0)),
+                    new XElement(Rdl + "Style", new XElement(Rdl + "Border", new XElement(Rdl + "Style", "Solid"))));
+            }
+            if (c is ImageComponent ic)
+            {
+                return new XElement(Rdl + "Image",
+                    new XAttribute("Name", $"Img_{c.Id:N}"),
+                    new XElement(Rdl + "Source", "External"),
+                    new XElement(Rdl + "Value", ic.SourcePath),
+                    new XElement(Rdl + "Top", RdlMeasure.PixelsToIn(top)),
+                    new XElement(Rdl + "Left", RdlMeasure.PixelsToIn(c.X)),
+                    new XElement(Rdl + "Height", RdlMeasure.PixelsToIn(c.Height)),
+                    new XElement(Rdl + "Width", RdlMeasure.PixelsToIn(c.Width)));
+            }
+            return null;
+        }
+
+        private static string ParseLiteralOrExpr(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+            if (text.StartsWith("=")) return text; // Already rigidly formatted
+            
+            if (text.Contains("[="))
+            {
+                string formatted = text.Replace("\"", "\"\"");
+                formatted = formatted.Replace("[=", "\" & ").Replace("]", " & \"");
+                return $"=\"{formatted}\"".Replace("\"\" & ", "\" & ").Replace(" & \"\"", " & \"");
+            }
+            return Literal(text);
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════
         // Page Header — Left / Center / Right zones
         // ══════════════════════════════════════════════════════════════════════════════
 
         private static XElement BuildPageHeader(ReportDefinition definition)
         {
+            var headerItems = definition.CanvasItems.Where(c => c.Y < 180 && !(c is TabularColumnComponent)).ToList();
+            if (headerItems.Any())
+            {
+                var elements = headerItems.Select(c => BuildVisualItem(c, 0)).Where(e => e != null).ToList();
+                return new XElement(Rdl + "PageHeader",
+                    new XElement(Rdl + "Height", RdlMeasure.PixelsToIn(180)),
+                    new XElement(Rdl + "PrintOnFirstPage", "true"),
+                    new XElement(Rdl + "PrintOnLastPage", "true"),
+                    new XElement(Rdl + "ReportItems", elements!));
+            }
+
+            // Fallback Logic
             double leftZoneLeftIn = MarginIn;
             double leftZoneWidthIn = TablixTotalWidthIn * 0.30;
             double centerZoneLeftIn = leftZoneLeftIn + leftZoneWidthIn + 0.1;
@@ -224,17 +303,10 @@ namespace AutoReportWizard.Services
 
             var items = new List<XElement>();
 
-            var leftParams = definition.DynamicParameters
-                .Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Left)
-                .OrderBy(p => p.HeaderOrder).ToList();
-            var centerParams = definition.DynamicParameters
-                .Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Center)
-                .OrderBy(p => p.HeaderOrder).ToList();
-            var rightParams = definition.DynamicParameters
-                .Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Right)
-                .OrderBy(p => p.HeaderOrder).ToList();
+            var leftParams = definition.DynamicParameters.Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Left).OrderBy(p => p.HeaderOrder).ToList();
+            var centerParams = definition.DynamicParameters.Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Center).OrderBy(p => p.HeaderOrder).ToList();
+            var rightParams = definition.DynamicParameters.Where(p => p.MapsToHeader && p.HeaderZone == HeaderZone.Right).OrderBy(p => p.HeaderOrder).ToList();
 
-            // ── Left zone: optional static letterhead lines first, then dynamic "Label : @Param" lines ──
             var leftLines = new List<string>();
             if (!string.IsNullOrWhiteSpace(definition.StaticHeaderLeftLine1)) leftLines.Add(Literal(definition.StaticHeaderLeftLine1));
             if (!string.IsNullOrWhiteSpace(definition.StaticHeaderLeftLine2)) leftLines.Add(Literal(definition.StaticHeaderLeftLine2));
@@ -243,57 +315,40 @@ namespace AutoReportWizard.Services
             double leftY = 0.05;
             for (int i = 0; i < leftLines.Count; i++)
             {
-                items.Add(BuildTextbox($"HdrLeft_{i}", leftLines[i], bold: true, align: "Left", fontSize: "9pt",
-                    top: In(leftY), left: In(leftZoneLeftIn), width: In(leftZoneWidthIn), height: In(0.20)));
+                items.Add(BuildTextbox($"HdrLeft_{i}", leftLines[i], bold: true, align: "Left", fontSize: "9pt", top: In(leftY), left: In(leftZoneLeftIn), width: In(leftZoneWidthIn), height: In(0.20)));
                 leftY += 0.22;
             }
 
-            // ── Center zone: Report Title (line 1, large/bold), Subtitle line(s), then any center-mapped params ──
             double centerY = 0.05;
             if (!string.IsNullOrWhiteSpace(definition.ReportTitle))
             {
-                items.Add(BuildTextbox("HdrCenter_Title", Literal(definition.ReportTitle), bold: true, align: "Center", fontSize: "16pt",
-                    top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.30)));
+                items.Add(BuildTextbox("HdrCenter_Title", Literal(definition.ReportTitle), bold: true, align: "Center", fontSize: "16pt", top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.30)));
                 centerY += 0.32;
             }
             if (!string.IsNullOrWhiteSpace(definition.ReportSubtitle))
             {
-                // ReportDefinition only exposes a single ReportSubtitle string. If you need more
-                // than one subtitle line as a first-class field (rather than newline-delimited,
-                // as done here), consider adding a `List<string> ReportSubtitleLines` to
-                // ReportDefinition — this split is a pragmatic bridge until then.
-                var subtitleLines = definition.ReportSubtitle
-                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var subtitleLines = definition.ReportSubtitle.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 for (int i = 0; i < subtitleLines.Length; i++)
                 {
-                    items.Add(BuildTextbox($"HdrCenter_Subtitle_{i}", Literal(subtitleLines[i]), bold: true, align: "Center", fontSize: "11pt",
-                        top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.22)));
+                    items.Add(BuildTextbox($"HdrCenter_Subtitle_{i}", Literal(subtitleLines[i]), bold: true, align: "Center", fontSize: "11pt", top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.22)));
                     centerY += 0.22;
                 }
             }
             foreach (var p in centerParams)
             {
-                items.Add(BuildTextbox($"HdrCenter_{SanitizeIdentifier(p.RdlcParameterName)}", LabelledParamExpr(p.PromptText, p.RdlcParameterName),
-                    bold: true, align: "Center", fontSize: "9pt",
-                    top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.20)));
+                items.Add(BuildTextbox($"HdrCenter_{SanitizeIdentifier(p.RdlcParameterName)}", LabelledParamExpr(p.PromptText, p.RdlcParameterName), bold: true, align: "Center", fontSize: "9pt", top: In(centerY), left: In(centerZoneLeftIn), width: In(centerZoneWidthIn), height: In(0.20)));
                 centerY += 0.22;
             }
 
-            // ── Right zone: dynamic "Label : @Param" lines, then built-in Page X / Y ──
             double rightY = 0.05;
             foreach (var p in rightParams)
             {
-                items.Add(BuildTextbox($"HdrRight_{SanitizeIdentifier(p.RdlcParameterName)}", LabelledParamExpr(p.PromptText, p.RdlcParameterName),
-                    bold: true, align: "Right", fontSize: "9pt",
-                    top: In(rightY), left: In(rightZoneLeftIn), width: In(rightZoneWidthIn), height: In(0.20)));
+                items.Add(BuildTextbox($"HdrRight_{SanitizeIdentifier(p.RdlcParameterName)}", LabelledParamExpr(p.PromptText, p.RdlcParameterName), bold: true, align: "Right", fontSize: "9pt", top: In(rightY), left: In(rightZoneLeftIn), width: In(rightZoneWidthIn), height: In(0.20)));
                 rightY += 0.22;
             }
             if (definition.IncludePageNumbers)
             {
-                items.Add(BuildTextbox("HdrRight_PageNumber",
-                    "=\"Page : \" & Globals!PageNumber & \" / \" & Globals!TotalPages",
-                    bold: true, align: "Right", fontSize: "9pt",
-                    top: In(rightY), left: In(rightZoneLeftIn), width: In(rightZoneWidthIn), height: In(0.20)));
+                items.Add(BuildTextbox("HdrRight_PageNumber", "=\"Page : \" & Globals!PageNumber & \" / \" & Globals!TotalPages", bold: true, align: "Right", fontSize: "9pt", top: In(rightY), left: In(rightZoneLeftIn), width: In(rightZoneWidthIn), height: In(0.20)));
                 rightY += 0.22;
             }
 
@@ -308,8 +363,19 @@ namespace AutoReportWizard.Services
 
         private static XElement? BuildPageFooter(ReportDefinition definition)
         {
-            if (!definition.IncludeExecutionTime)
-                return null;
+            var footerItems = definition.CanvasItems.Where(c => c.Y >= 970 && !(c is TabularColumnComponent)).ToList();
+            if (footerItems.Any())
+            {
+                var elements = footerItems.Select(c => BuildVisualItem(c, 970)).Where(e => e != null).ToList();
+                return new XElement(Rdl + "PageFooter",
+                    new XElement(Rdl + "Height", RdlMeasure.PixelsToIn(1123 - 970)),
+                    new XElement(Rdl + "PrintOnFirstPage", "true"),
+                    new XElement(Rdl + "PrintOnLastPage", "true"),
+                    new XElement(Rdl + "ReportItems", elements!));
+            }
+
+            // Fallback Logic
+            if (!definition.IncludeExecutionTime) return null;
 
             var tb = BuildTextbox("FtrExecutionTime", "=\"Printed: \" & Globals!ExecutionTime",
                 bold: false, align: "Left", fontSize: "8pt",
@@ -328,65 +394,239 @@ namespace AutoReportWizard.Services
 
         private static XElement BuildBody(ReportDefinition definition, out double reportSectionWidthIn)
         {
-            var columns = definition.Fields.Where(f => f.IsDetailField).OrderBy(f => f.DisplayOrder).ToList();
-            var groupFields = definition.Fields.Where(f => f.IsGroupBy).OrderBy(f => f.DisplayOrder).ToList();
-
-            var widths = ResolveColumnWidths(columns);
-            double tablixWidthIn = widths.Sum();
-
-            var tablixColumns = widths.Select(w => new XElement(Rdl + "TablixColumn", new XElement(Rdl + "Width", In(w))));
-            var columnMembers = columns.Select(_ => new XElement(Rdl + "TablixMember"));
-
-            var rows = new List<XElement> { BuildColumnHeaderRow(columns) };
-            var topLevelRowMembers = new List<XElement> { new XElement(Rdl + "TablixMember") }; // maps to column-header row
-
-            if (groupFields.Count > 0)
+            // Parse visual columns instead of blind data looping
+            var visualColumns = definition.CanvasItems.OfType<TabularColumnComponent>().OrderBy(c => c.X).ToList();
+            
+            // Core Logic Safety Net
+            if (visualColumns.Count == 0)
             {
-                var (groupMember, groupRows) = BuildGroupLevel(groupFields, 0, columns);
-                rows.AddRange(groupRows);
-                topLevelRowMembers.Add(groupMember);
+                // Fallback to OutputFields (from SP) or Fields if visual canvas isn't used
+                var sourceFields = definition.OutputFields.Any() ? definition.OutputFields : definition.Fields;
+                var columns = sourceFields.Where(f => f.IsDetailField).OrderBy(f => f.DisplayOrder).ToList();
+                var groupFields = sourceFields.Where(f => f.IsGroupBy).OrderBy(f => f.DisplayOrder).ToList();
+
+                var widths = ResolveColumnWidths(columns);
+                double tablixWidthIn = widths.Sum();
+
+                var tablixColumns = widths.Select(w => new XElement(Rdl + "TablixColumn", new XElement(Rdl + "Width", In(w))));
+                var columnMembers = columns.Select(_ => new XElement(Rdl + "TablixMember"));
+
+                var rows = new List<XElement> { BuildColumnHeaderRow(columns) };
+                var topLevelRowMembers = new List<XElement> { new XElement(Rdl + "TablixMember") };
+
+                if (groupFields.Count > 0)
+                {
+                    var (groupMember, groupRows) = BuildGroupLevel(groupFields, 0, columns);
+                    rows.AddRange(groupRows);
+                    topLevelRowMembers.Add(groupMember);
+                }
+                else
+                {
+                    rows.Add(BuildDetailRow(columns));
+                    topLevelRowMembers.Add(new XElement(Rdl + "TablixMember",
+                        new XElement(Rdl + "Group", new XAttribute("Name", "Details"))));
+                }
+
+                if (definition.IncludeGrandTotals)
+                {
+                    rows.Add(BuildGrandTotalsRow(columns));
+                    topLevelRowMembers.Add(new XElement(Rdl + "TablixMember"));
+                }
+
+                double tablixHeightIn = rows.Count * DefaultRowHeightIn + 0.10;
+
+                var fallbackTablix = new XElement(Rdl + "Tablix",
+                    new XAttribute("Name", "Tablix_Main"),
+                    new XElement(Rdl + "TablixBody",
+                        new XElement(Rdl + "TablixColumns", tablixColumns),
+                        new XElement(Rdl + "TablixRows", rows)),
+                    new XElement(Rdl + "TablixColumnHierarchy", new XElement(Rdl + "TablixMembers", columnMembers)),
+                    new XElement(Rdl + "TablixRowHierarchy", new XElement(Rdl + "TablixMembers", topLevelRowMembers)),
+                    new XElement(Rdl + "DataSetName", "MainDataSet"),
+                    new XElement(Rdl + "Top", "0in"),
+                    new XElement(Rdl + "Left", "0in"),
+                    new XElement(Rdl + "Height", In(tablixHeightIn)),
+                    new XElement(Rdl + "Width", In(tablixWidthIn)));
+
+                reportSectionWidthIn = Math.Max(tablixWidthIn, TablixTotalWidthIn);
+
+                return new XElement(Rdl + "Body",
+                    new XElement(Rdl + "ReportItems", fallbackTablix),
+                    new XElement(Rdl + "Height", In(tablixHeightIn + 0.10)));
+            }
+
+            // Using Visual Canvas Layout
+            var visualTablixColumns = visualColumns.Select(c =>
+                new XElement(Rdl + "TablixColumn", new XElement(Rdl + "Width", RdlMeasure.PixelsToIn(c.Width))));
+            var visualColumnMembers = visualColumns.Select(_ => new XElement(Rdl + "TablixMember"));
+
+            var visualRows = new List<XElement> { BuildColumnHeaderRow(visualColumns) };
+            var visualTopLevelRowMembers = new List<XElement> { new XElement(Rdl + "TablixMember") };
+
+            // Use OutputFields (from SP) if available, otherwise fall back to Fields
+            var allFields = definition.OutputFields.Any() ? definition.OutputFields : definition.Fields.ToList();
+            var currentGroupFields = allFields.Where(f => f.IsGroupBy).OrderBy(f => f.DisplayOrder).ToList();
+            
+            if (currentGroupFields.Count > 0)
+            {
+                var (groupMember, groupRows) = BuildGroupLevel(currentGroupFields, 0, visualColumns, allFields);
+                visualRows.AddRange(groupRows);
+                visualTopLevelRowMembers.Add(groupMember);
             }
             else
             {
-                // No grouping configured — flat detail table under an unnamed Details group.
-                rows.Add(BuildDetailRow(columns));
-                topLevelRowMembers.Add(new XElement(Rdl + "TablixMember",
-                    new XElement(Rdl + "Group", new XAttribute("Name", "Details"))));
+                visualRows.Add(BuildDetailRow(visualColumns, allFields));
+                visualTopLevelRowMembers.Add(new XElement(Rdl + "TablixMember", new XElement(Rdl + "Group", new XAttribute("Name", "Details"))));
             }
 
             if (definition.IncludeGrandTotals)
             {
-                rows.Add(BuildGrandTotalsRow(columns));
-                topLevelRowMembers.Add(new XElement(Rdl + "TablixMember"));
+                visualRows.Add(BuildGrandTotalsRow(visualColumns, allFields));
+                visualTopLevelRowMembers.Add(new XElement(Rdl + "TablixMember"));
             }
 
-            double tablixHeightIn = rows.Count * DefaultRowHeightIn + 0.10;
+            double tablixWidthPx = visualColumns.Sum(c => c.Width);
+            reportSectionWidthIn = Math.Max(tablixWidthPx / 96.0, PageWidthIn - (2 * MarginIn));
+
+            double minX = visualColumns.Min(c => c.X);
+            double minY = visualColumns.Min(c => c.Y);
+            double topPx = Math.Max(0, minY - 180);
+            double heightIn = visualRows.Count * DefaultRowHeightIn;
 
             var tablix = new XElement(Rdl + "Tablix",
                 new XAttribute("Name", "Tablix_Main"),
                 new XElement(Rdl + "TablixBody",
-                    new XElement(Rdl + "TablixColumns", tablixColumns),
-                    new XElement(Rdl + "TablixRows", rows)),
-                new XElement(Rdl + "TablixColumnHierarchy", new XElement(Rdl + "TablixMembers", columnMembers)),
-                new XElement(Rdl + "TablixRowHierarchy", new XElement(Rdl + "TablixMembers", topLevelRowMembers)),
+                    new XElement(Rdl + "TablixColumns", visualTablixColumns),
+                    new XElement(Rdl + "TablixRows", visualRows)),
+                new XElement(Rdl + "TablixColumnHierarchy", new XElement(Rdl + "TablixMembers", visualColumnMembers)),
+                new XElement(Rdl + "TablixRowHierarchy", new XElement(Rdl + "TablixMembers", visualTopLevelRowMembers)),
                 new XElement(Rdl + "DataSetName", "MainDataSet"),
-                new XElement(Rdl + "Top", "0in"),
-                new XElement(Rdl + "Left", "0in"),
-                new XElement(Rdl + "Height", In(tablixHeightIn)),
-                new XElement(Rdl + "Width", In(tablixWidthIn)));
+                new XElement(Rdl + "Top", RdlMeasure.PixelsToIn(topPx)),
+                new XElement(Rdl + "Left", RdlMeasure.PixelsToIn(minX)),
+                new XElement(Rdl + "Height", In(heightIn)),
+                new XElement(Rdl + "Width", RdlMeasure.PixelsToIn(tablixWidthPx)));
 
-            reportSectionWidthIn = Math.Max(tablixWidthIn, TablixTotalWidthIn);
+            var bodyItems = definition.CanvasItems.Where(c => c.Y >= 180 && c.Y < 970 && !(c is TabularColumnComponent)).ToList();
+            var elements = bodyItems.Select(c => BuildVisualItem(c, 180)).Where(e => e != null).ToList();
+            elements.Add(tablix);
 
             return new XElement(Rdl + "Body",
-                new XElement(Rdl + "ReportItems", tablix),
-                new XElement(Rdl + "Height", In(tablixHeightIn + 0.10)));
+                new XElement(Rdl + "ReportItems", elements!),
+                new XElement(Rdl + "Height", In(Math.Max(heightIn + 0.10, (970 - 180) / 96.0))));
         }
 
-        /// <summary>
-        /// Recursively builds one level of the row-grouping hierarchy for the given ordered
-        /// list of IsGroupBy fields. Returns the TablixMember for this level plus the flat,
-        /// document-ordered list of TablixRow elements it (and its descendants) contribute.
-        /// </summary>
+        // Overloads for visual canvas row building
+        private static (XElement Member, List<XElement> Rows) BuildGroupLevel(
+            List<ReportField> groupFields, int level, List<TabularColumnComponent> columns, List<ReportField> allFields)
+        {
+            if (level >= groupFields.Count)
+            {
+                var detailsMember = new XElement(Rdl + "TablixMember",
+                    new XElement(Rdl + "Group", new XAttribute("Name", "Details")));
+                return (detailsMember, new List<XElement> { BuildDetailRow(columns, allFields) });
+            }
+
+            var field = groupFields[level];
+            string fieldRef = SanitizeIdentifier(field.GetDatasetFieldName());
+            string groupName = $"{fieldRef}Group";
+            string label = field.DisplayHeaderLabel.ToUpperInvariant();
+            string headerExpr = $"=\"{Escape(label)} : \" & Fields!{fieldRef}.Value";
+
+            var headerRow = BuildSpannedRow($"GroupHeader_{groupName}", headerExpr, columns.Count);
+            var headerMember = new XElement(Rdl + "TablixMember");
+
+            var (childMember, childRows) = BuildGroupLevel(groupFields, level + 1, columns, allFields);
+
+            var groupMember = new XElement(Rdl + "TablixMember",
+                new XElement(Rdl + "Group",
+                    new XAttribute("Name", groupName),
+                    new XElement(Rdl + "GroupExpressions",
+                        new XElement(Rdl + "GroupExpression", $"=Fields!{fieldRef}.Value"))),
+                new XElement(Rdl + "TablixMembers", headerMember, childMember));
+
+            var rows = new List<XElement> { headerRow };
+            rows.AddRange(childRows);
+            return (groupMember, rows);
+        }
+
+        private static XElement BuildColumnHeaderRow(List<TabularColumnComponent> columns)
+        {
+            var cells = columns.Select(c =>
+                new XElement(Rdl + "TablixCell",
+                    new XElement(Rdl + "CellContents",
+                        BuildTextbox($"Hdr_{c.Id:N}", Literal(c.HeaderString.ToUpperInvariant()),
+                            bold: true, align: "Center", fontSize: "9pt",
+                            topBorderColor: GridLineColor, bottomBorderColor: GridLineColor))));
+
+            return new XElement(Rdl + "TablixRow",
+                new XElement(Rdl + "Height", In(HeaderRowHeightIn)),
+                new XElement(Rdl + "TablixCells", cells));
+        }
+
+        private static XElement BuildDetailRow(List<TabularColumnComponent> columns, List<ReportField> allFields)
+        {
+            var cells = columns.Select(c =>
+            {
+                var fieldData = allFields.FirstOrDefault(f => f.Name == c.BoundField);
+                
+                // Safely handle null expressions from dynamically generated columns
+                string expr = c.DataExpression ?? string.Empty; 
+                
+                // If the expression is empty (auto-generated) OR it's a standard field mapping, build the SSRS expression
+                if (fieldData != null && (string.IsNullOrWhiteSpace(expr) || expr.StartsWith("=Fields!")))
+                {
+                    string fieldName = SanitizeIdentifier(fieldData.GetDatasetFieldName());
+                    expr = $"=Fields!{fieldName}.Value";
+                }
+
+                return new XElement(Rdl + "TablixCell",
+                    new XElement(Rdl + "CellContents",
+                        BuildTextbox($"Txt_{c.Id:N}", expr, bold: false, 
+                            align: fieldData != null && IsRightAligned(fieldData) ? "Right" : "Left",
+                            fontSize: "9pt", format: fieldData != null ? ResolveFormat(fieldData) : null)));
+            });
+
+            return new XElement(Rdl + "TablixRow",
+                new XElement(Rdl + "Height", In(DefaultRowHeightIn)),
+                new XElement(Rdl + "TablixCells", cells));
+        }
+
+        private static XElement BuildGrandTotalsRow(List<TabularColumnComponent> columns, List<ReportField> allFields)
+        {
+            var cells = new List<XElement>();
+            for (int i = 0; i < columns.Count; i++)
+            {
+                var c = columns[i];
+                var f = allFields.FirstOrDefault(field => field.Name == c.BoundField);
+                XElement textbox;
+
+                if (i == 0)
+                {
+                    textbox = BuildTextbox("Txt_GrandTotalsLabel", Literal("GRAND TOTALS"),
+                        bold: true, align: "Left", fontSize: "9pt", topBorderColor: GridLineColor);
+                }
+                else if (f != null && f.Aggregate != AggregateFunction.None)
+                {
+                    string fieldName = SanitizeIdentifier(f.GetDatasetFieldName());
+                    textbox = BuildTextbox($"Txt_Total_{c.Id:N}", $"=Sum(Fields!{fieldName}.Value)",
+                        bold: true, align: "Right", fontSize: "9pt",
+                        format: ResolveFormat(f), topBorderColor: GridLineColor);
+                }
+                else
+                {
+                    textbox = BuildTextbox($"Txt_TotalBlank_{c.Id:N}", string.Empty,
+                        bold: false, align: "Left", fontSize: "9pt", topBorderColor: GridLineColor);
+                }
+
+                cells.Add(new XElement(Rdl + "TablixCell", new XElement(Rdl + "CellContents", textbox)));
+            }
+
+            return new XElement(Rdl + "TablixRow",
+                new XElement(Rdl + "Height", In(DefaultRowHeightIn)),
+                new XElement(Rdl + "TablixCells", cells));
+        }
+
+        // Fallback overloads for legacy definition.Fields processing
         private static (XElement Member, List<XElement> Rows) BuildGroupLevel(
             List<ReportField> groupFields, int level, List<ReportField> columns)
         {
@@ -404,7 +644,7 @@ namespace AutoReportWizard.Services
             string headerExpr = $"=\"{Escape(label)} : \" & Fields!{fieldRef}.Value";
 
             var headerRow = BuildSpannedRow($"GroupHeader_{groupName}", headerExpr, columns.Count);
-            var headerMember = new XElement(Rdl + "TablixMember"); // static leaf → maps to headerRow
+            var headerMember = new XElement(Rdl + "TablixMember");
 
             var (childMember, childRows) = BuildGroupLevel(groupFields, level + 1, columns);
 
@@ -485,11 +725,6 @@ namespace AutoReportWizard.Services
                 new XElement(Rdl + "TablixCells", cells));
         }
 
-        /// <summary>
-        /// Builds a row where the SAME Textbox definition is repeated in every cell so the
-        /// renderer merges them into a single band spanning the full table width. Used for
-        /// the "BATCH NBR : 3292" style group header.
-        /// </summary>
         private static XElement BuildSpannedRow(string baseName, string expression, int columnCount)
         {
             var template = BuildTextbox(baseName, expression, bold: true, align: "Left", fontSize: "9pt",
@@ -536,11 +771,6 @@ namespace AutoReportWizard.Services
         // Shared Textbox builder
         // ══════════════════════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Builds a Textbox element. When top/left/width/height are supplied, it's built as a
-        /// free-floating item (PageHeader/PageFooter); when they're omitted, it's built for use
-        /// inside a TablixCell, where the cell/column/row dimensions govern its geometry.
-        /// </summary>
         private static XElement BuildTextbox(
             string name,
             string value,
@@ -619,7 +849,6 @@ namespace AutoReportWizard.Services
 
         private static string NormalizeParamName(string raw) => SanitizeIdentifier((raw ?? string.Empty).TrimStart('@'));
 
-        /// <summary>Strips characters that aren't valid in an RDL/CLR identifier (element Name / Fields!x / Parameters!x).</summary>
         private static string SanitizeIdentifier(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return "Field";
@@ -629,8 +858,6 @@ namespace AutoReportWizard.Services
             return sanitized;
         }
 
-        /// <summary>4-decimal numeric format for money/decimal-like types, whole-number format for
-        /// integers, short date for date/time types — matches the "AMOUNT PAID: 172.0000" requirement.</summary>
         private static string? ResolveFormat(ReportField f)
         {
             return f.SqlDataType.Trim().ToLowerInvariant() switch

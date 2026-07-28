@@ -89,19 +89,7 @@ public static class ReportPreviewService
                 .Where(p => !string.IsNullOrWhiteSpace(p.RdlcParameterName))
                 .Select(p => 
                 {
-                    string safeValue = p.Value ?? string.Empty;
-                    if (safeValue == " ")
-                    {
-                        // 1. Update the underlying value to effectively bypass query conditions 
-                        // if any subsequent code observes this parameter (like fallback logic).
-                        // Note: DatabaseService's ConvertParameterValue already trims " " to empty 
-                        // and falls back to DBNull if AllowBlank is true.
-                        p.Value = null;
-                        
-                        // 2. Pass a blank token safely to LocalReport so the local engine 
-                        // ignores it as a literal filter and compiles without exceptions.
-                        safeValue = string.Empty; 
-                    }
+                    string? safeValue = p.Value == " " ? null : (string.IsNullOrWhiteSpace(p.Value) ? null : p.Value.Trim());
                     return new Microsoft.Reporting.WinForms.ReportParameter(p.RdlcParameterName, safeValue);
                 })
                 .ToArray();

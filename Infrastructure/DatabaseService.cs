@@ -18,11 +18,10 @@ namespace AutoReportWizard.Infrastructure
     /// with Integrated Windows Authentication, connection pooling, and a
     /// Polly 8 resilience pipeline (exponential backoff, 3 retries).
     ///
-    /// STRICT RULES:
-    ///   - Only Integrated Security is used — no username/password parameters.
-    ///   - Schema discovery is performed exclusively through sys.columns and
-    ///     sys.types system views with parameterized commands.
-    ///   - No dynamic SQL is constructed or executed in this service.
+    /// STORED PROCEDURE FIRST ARCHITECTURE:
+    ///   - Extracts metadata from existing Stored Procedures via sys.parameters
+    ///   - Hybrid schema discovery (sys.dm_exec_describe_first_result_set + SchemaOnly fallback)
+    ///   - No dynamic SQL generation - all queries are strictly parameterized
     /// </summary>
     public class DatabaseService
     {
@@ -75,7 +74,7 @@ namespace AutoReportWizard.Infrastructure
                             or 10060),       // Network unreachable
                 MaxRetryAttempts = ReportDefinition.MaxDbRetries,
                 Delay = TimeSpan.FromSeconds(2),
-                BackoffType = DelayBackoffType.Exponential,   // 2s → 4s → 8s
+                BackoffType = DelayBackoffType.Exponential,
                 UseJitter = true,
                 OnRetry = args =>
                 {
@@ -90,55 +89,48 @@ namespace AutoReportWizard.Infrastructure
         // ── Public API ──────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Analyzes a custom T-SQL script (e.g. cross-database joins, UNIONS) and extracts
-        /// the exact output schema using sp_describe_first_result_set.
+        /// Discovers output fields from a Stored Procedure using a hybrid approach.
+        /// Attempts sys.dm_exec_describe_first_result_set, falls back to CommandBehavior.SchemaOnly
+        /// if temporary tables prevent static analysis.
         /// </summary>
-        public async Task<List<ReportField>> GetSchemaFromCustomSqlAsync(
+        public async Task<List<ReportField>> GetStoredProcedureOutputFieldsAsync(
             ReportDefinition def,
             CancellationToken cancellationToken = default)
         {
             var fields = new List<ReportField>();
+            string spFullName = $"[{def.SchemaName}].[{def.StoredProcedureName}]";
 
             await _resilience.ExecuteAsync(async ct =>
             {
                 await using var connection = new SqlConnection(def.BuildConnectionString());
                 await connection.OpenAsync(ct);
 
-                // Added 'error_message' to the SELECT so we can catch TempTable failures
-                const string sql = @"
-                    SELECT name, system_type_name, column_ordinal, error_message
-                    FROM sys.dm_exec_describe_first_result_set(@CustomQuery, NULL, 0)
-                    WHERE is_hidden = 0 OR error_message IS NOT NULL
-                    ORDER BY column_ordinal;";
-
-                await using var cmd = new SqlCommand(sql, connection);
-                cmd.Parameters.AddWithValue("@CustomQuery", def.CustomSql);
-
-                await using var reader = await cmd.ExecuteReaderAsync(ct);
-
-                while (await reader.ReadAsync(ct))
+                // Attempt 1: Static analysis (Fast, but fails on #temp tables)
+                try
                 {
-                    // Check if SQL Server returned an explicit parsing error
-                    if (!reader.IsDBNull(3))
+                    const string sql = @"
+                        SELECT name, system_type_name, column_ordinal, error_message
+                        FROM sys.dm_exec_describe_first_result_set(@StoredProcedureName, NULL, 0)
+                        WHERE is_hidden = 0 OR error_message IS NOT NULL
+                        ORDER BY column_ordinal;";
+
+                    await using var cmd = new SqlCommand(sql, connection) { CommandTimeout = ReportDefinition.SchemaTimeoutSeconds };
+                    cmd.Parameters.AddWithValue("@StoredProcedureName", spFullName);
+
+                    await using var reader = await cmd.ExecuteReaderAsync(ct);
+                    while (await reader.ReadAsync(ct))
                     {
-                        string errorMsg = reader.GetString(3);
-                        throw new InvalidOperationException($"SQL Server rejected the query schema. {errorMsg}");
+                        if (!reader.IsDBNull(3)) throw new InvalidOperationException("Temp table detected, falling back.");
+                        if (reader.IsDBNull(0) || reader.IsDBNull(1)) continue;
+
+                        fields.Add(MapToReportField(reader.GetString(0), reader.GetString(1), reader.GetInt32(2) - 1));
                     }
-
-                    if (reader.IsDBNull(0) || reader.IsDBNull(1)) continue;
-
-                    string colName = reader.GetString(0);
-                    string sqlType = reader.GetString(1);
-                    int colOrder = reader.GetInt32(2);
-
-                    fields.Add(new ReportField
-                    {
-                        Name = colName,
-                        SqlDataType = sqlType,
-                        DotNetType = MapToDotNet(sqlType), // Reuses your existing deterministic mapper
-                        IsDetailField = true,
-                        DisplayOrder = colOrder - 1
-                    });
+                    
+                    if (fields.Count > 0) return; // Success!
+                }
+                catch
+                {
+                    fields.Clear(); // Clear partials and prepare for Fallback
                 }
             }, cancellationToken);
 
@@ -146,146 +138,72 @@ namespace AutoReportWizard.Infrastructure
         }
 
         /// <summary>
-        /// Discovers all columns for the given table/view from sys.columns.
-        /// Enforces the 30-column guardrail and the 60-second schema timeout.
+        /// Discovers input parameters from a Stored Procedure using sys.parameters.
+        /// Returns a list of ReportParameter objects ready for RDLC generation.
         /// </summary>
-        public async Task<List<ReportField>> GetSchemaAsync(
+        public async Task<List<ReportParameter>> GetStoredProcedureParametersAsync(
             ReportDefinition def,
             CancellationToken cancellationToken = default)
         {
-            var fields = new List<ReportField>();
+            var parameters = new List<ReportParameter>();
 
             await _resilience.ExecuteAsync(async ct =>
             {
                 await using var connection = new SqlConnection(def.BuildConnectionString());
                 await connection.OpenAsync(ct);
 
-                // Parameterized query — no dynamic SQL, only system views
-                const string sql = """
-                    SELECT
-                        c.name                AS ColumnName,
-                        tp.name               AS TypeName,
-                        c.column_id           AS ColumnOrder
-                    FROM sys.columns     c
-                    JOIN sys.objects     o  ON o.object_id = c.object_id
-                    JOIN sys.schemas     s  ON s.schema_id = o.schema_id
-                    JOIN sys.types       tp ON tp.user_type_id = c.user_type_id
-                    WHERE s.name        = @Schema
-                      AND o.name       = @Table
-                      AND o.type       IN ('U','V','P')   -- Tables, Views, Procs
-                    ORDER BY c.column_id
-                    """;
+                const string sql = @"
+                    SELECT 
+                        p.name AS ParameterName,
+                        t.name AS DataType,
+                        p.max_length AS MaxLength,
+                        p.precision AS Precision,
+                        p.scale AS Scale,
+                        p.is_output AS IsOutput
+                    FROM sys.parameters p
+                    INNER JOIN sys.objects o ON o.object_id = p.object_id
+                    INNER JOIN sys.schemas s ON s.schema_id = o.schema_id
+                    INNER JOIN sys.types t ON t.user_type_id = p.user_type_id
+                    WHERE s.name = @SchemaName
+                      AND o.name = @ProcedureName
+                      AND o.type = 'P'
+                      AND p.is_output = 0
+                    ORDER BY p.parameter_id;";
 
-                await using var cmd = new SqlCommand(sql, connection)
-                {
-                    CommandTimeout = ReportDefinition.SchemaTimeoutSeconds
-                };
-                cmd.Parameters.AddWithValue("@Schema", def.SchemaName);
-                cmd.Parameters.AddWithValue("@Table", def.TableOrViewName);
+                await using var cmd = new SqlCommand(sql, connection) { CommandTimeout = ReportDefinition.SchemaTimeoutSeconds };
+                cmd.Parameters.AddWithValue("@SchemaName", def.SchemaName);
+                cmd.Parameters.AddWithValue("@ProcedureName", def.StoredProcedureName);
 
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
 
                 while (await reader.ReadAsync(ct))
                 {
-                    string colName = reader.GetString(0);
-                    string sqlType = reader.GetString(1);
-                    int colOrder = reader.GetInt32(2);
+                    string paramName = reader.GetString(0);
+                    string dataType = reader.GetString(1);
+                    int maxLength = reader.GetInt16(2);
+                    byte precision = reader.GetByte(3);
+                    byte scale = reader.GetByte(4);
 
-                    fields.Add(new ReportField
+                    string sqlDataType = BuildSqlDataType(dataType, maxLength, precision, scale);
+
+                    parameters.Add(new ReportParameter
                     {
-                        Name = colName,
-                        SqlDataType = sqlType,
-                        DotNetType = MapToDotNet(sqlType),
-                        IsDetailField = true,
-                        DisplayOrder = colOrder - 1,  // 0-based
-                        // Grid-snapped defaults for the WYSIWYG Canvas
-                        ItemWidth = 120,
-                        ItemHeight = 32,
-                        CanvasX = 16,
-                        CanvasY = 16,
-                        TextAlign = "Default",
-                        FontWeight = "Normal",
-                        BorderColor = "LightGrey"
+                        Name = paramName.Replace("@", ""), // Strip @ for UI display
+                        SqlDataType = sqlDataType,
+                        RdlcDataType = MapSqlTypeToRdlc(sqlDataType),
+                        Value = string.Empty,
+                        AllowBlank = true,
+                        IsHidden = false
                     });
                 }
             }, cancellationToken);
-            return fields;
+
+            return parameters;
         }
 
-        /// <summary>
-        /// Fetches all accessible databases on the server using DBInfo.xml credentials.
-        /// </summary>
-        public async Task<List<string>> GetDatabasesAsync(ReportDefinition def, CancellationToken ct = default)
+        public async Task<List<string>> GetStoredProceduresAsync(ReportDefinition def, string schema, CancellationToken ct = default)
         {
-            var databases = new List<string>();
-
-            // 1. Force the model to parse DBInfo.xml for credentials
-            def.LoadDbInfoConfiguration();
-
-            await _resilience.ExecuteAsync(async token =>
-            {
-                // 2. Build the connection string using the newly loaded XML credentials
-                await using var connection = new SqlConnection(def.BuildConnectionString());
-                await connection.OpenAsync(token);
-
-                const string sql = @"
-                    SELECT name
-                    FROM sys.databases
-                    WHERE state = 0 AND HAS_DBACCESS(name) = 1
-                    ORDER BY name;";
-
-                await using var cmd = new SqlCommand(sql, connection)
-                {
-                    CommandTimeout = ReportDefinition.SchemaTimeoutSeconds
-                };
-
-                await using var reader = await cmd.ExecuteReaderAsync(token);
-
-                while (await reader.ReadAsync(token))
-                {
-                    databases.Add(reader.GetString(0));
-                }
-            }, ct);
-
-            // Ensure the currently configured database is always in the list
-            if (!string.IsNullOrWhiteSpace(def.DatabaseName) &&
-                !databases.Any(db => string.Equals(db, def.DatabaseName, StringComparison.OrdinalIgnoreCase)))
-            {
-                databases.Insert(0, def.DatabaseName);
-            }
-
-            return databases.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        }
-
-        /// <summary>
-        /// Fetches all schemas for the currently selected database.
-        /// </summary>
-        public async Task<List<string>> GetSchemasAsync(ReportDefinition def, CancellationToken ct = default)
-        {
-            var schemas = new List<string>();
-            await _resilience.ExecuteAsync(async token =>
-            {
-                await using var connection = new SqlConnection(def.BuildConnectionString());
-                await connection.OpenAsync(token);
-
-                const string sql = "SELECT name FROM sys.schemas ORDER BY name";
-                await using var cmd = new SqlCommand(sql, connection);
-                await using var reader = await cmd.ExecuteReaderAsync(token);
-
-                while (await reader.ReadAsync(token))
-                {
-                    schemas.Add(reader.GetString(0));
-                }
-            }, ct);
-            return schemas;
-        }
-
-        /// <summary>
-        /// Fetches all Tables and Views for a specific schema.
-        /// </summary>
-        public async Task<List<string>> GetTablesAndViewsAsync(ReportDefinition def, string schema, CancellationToken ct = default)
-        {
-            var tables = new List<string>();
+            var procedures = new List<string>();
             await _resilience.ExecuteAsync(async token =>
             {
                 await using var connection = new SqlConnection(def.BuildConnectionString());
@@ -294,69 +212,76 @@ namespace AutoReportWizard.Infrastructure
                 const string sql = @"
                     SELECT name 
                     FROM sys.objects 
-                    WHERE type IN ('U', 'V') AND schema_id = SCHEMA_ID(@schema) 
+                    WHERE type = 'P' 
+                      AND schema_id = SCHEMA_ID(@schema)
+                      AND is_ms_shipped = 0
                     ORDER BY name";
 
                 await using var cmd = new SqlCommand(sql, connection);
                 cmd.Parameters.AddWithValue("@schema", schema);
                 await using var reader = await cmd.ExecuteReaderAsync(token);
 
-                while (await reader.ReadAsync(token))
-                {
-                    tables.Add(reader.GetString(0));
-                }
+                while (await reader.ReadAsync(token)) procedures.Add(reader.GetString(0));
             }, ct);
-            return tables;
+            return procedures;
         }
 
-        public async Task<DataTable> ExecuteStoredProcedurePreviewAsync(
-            ReportDefinition def,
-            IReadOnlyCollection<ReportParameter> parameters,
-            CancellationToken ct = default)
+        public async Task<List<string>> GetDatabasesAsync(ReportDefinition def, CancellationToken ct = default)
         {
-            var data = new DataTable("PreviewData");
-
-            // 1. We must parse out the CREATE PROCEDURE wrapper and extract ONLY the SELECT query
-            // so we can execute it safely against the live database for a preview.
-            string rawQuery = def.CustomSql;
-
-            // Look for the "SELECT" keyword to start the query. 
-            // We ignore the CREATE PROCEDURE and SET NOCOUNT ON headers.
-            int selectIndex = rawQuery.IndexOf("SELECT", StringComparison.OrdinalIgnoreCase);
-            if (selectIndex >= 0)
-            {
-                // Extract everything from SELECT down to the end
-                rawQuery = rawQuery.Substring(selectIndex);
-
-                // Remove the OPTION (RECOMPILE); and END tags from the footer
-                rawQuery = rawQuery.Replace("OPTION (RECOMPILE);", "", StringComparison.OrdinalIgnoreCase);
-                rawQuery = rawQuery.Replace("END", "", StringComparison.OrdinalIgnoreCase);
-            }
-
-            // If the user wrote Pre-Query logic (like DECLARE variables), prepend it back to the raw query
-            if (!string.IsNullOrWhiteSpace(def.PreQueryLogic))
-            {
-                rawQuery = def.PreQueryLogic + "\n" + rawQuery;
-            }
+            var databases = new List<string>();
+            def.LoadDbInfoConfiguration();
 
             await _resilience.ExecuteAsync(async token =>
             {
                 await using var connection = new SqlConnection(def.BuildConnectionString());
                 await connection.OpenAsync(token);
 
-                // 2. Change CommandType from StoredProcedure to Text so we can run raw SQL
-                await using var cmd = new SqlCommand(rawQuery, connection)
+                const string sql = "SELECT name FROM sys.databases WHERE state = 0 AND HAS_DBACCESS(name) = 1 ORDER BY name;";
+                await using var cmd = new SqlCommand(sql, connection) { CommandTimeout = ReportDefinition.SchemaTimeoutSeconds };
+                await using var reader = await cmd.ExecuteReaderAsync(token);
+                while (await reader.ReadAsync(token)) databases.Add(reader.GetString(0));
+            }, ct);
+
+            if (!string.IsNullOrWhiteSpace(def.DatabaseName) && !databases.Any(db => string.Equals(db, def.DatabaseName, StringComparison.OrdinalIgnoreCase)))
+            {
+                databases.Insert(0, def.DatabaseName);
+            }
+            return databases.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        public async Task<List<string>> GetSchemasAsync(ReportDefinition def, CancellationToken ct = default)
+        {
+            var schemas = new List<string>();
+            await _resilience.ExecuteAsync(async token =>
+            {
+                await using var connection = new SqlConnection(def.BuildConnectionString());
+                await connection.OpenAsync(token);
+                await using var cmd = new SqlCommand("SELECT name FROM sys.schemas ORDER BY name", connection);
+                await using var reader = await cmd.ExecuteReaderAsync(token);
+                while (await reader.ReadAsync(token)) schemas.Add(reader.GetString(0));
+            }, ct);
+            return schemas;
+        }
+
+        public async Task<DataTable> ExecuteStoredProcedurePreviewAsync(ReportDefinition def, IReadOnlyCollection<ReportParameter> parameters, CancellationToken ct = default)
+        {
+            var data = new DataTable("PreviewData");
+
+            await _resilience.ExecuteAsync(async token =>
+            {
+                await using var connection = new SqlConnection(def.BuildConnectionString());
+                await connection.OpenAsync(token);
+
+                string spFullName = $"[{def.SchemaName}].[{def.StoredProcedureName}]";
+                await using var cmd = new SqlCommand(spFullName, connection)
                 {
-                    CommandType = CommandType.Text,
+                    CommandType = CommandType.StoredProcedure,
                     CommandTimeout = ReportDefinition.SchemaTimeoutSeconds
                 };
 
-                // 3. Attach any parameters the user provided in the UI
                 foreach (var parameter in parameters)
                 {
-                    string parameterName = parameter.Name.StartsWith("@", StringComparison.Ordinal)
-                        ? parameter.Name
-                        : "@" + parameter.Name;
+                    string parameterName = parameter.Name.StartsWith("@", StringComparison.Ordinal) ? parameter.Name : "@" + parameter.Name;
                     object value = ConvertParameterValue(parameter);
                     cmd.Parameters.AddWithValue(parameterName, value);
                 }
@@ -368,13 +293,7 @@ namespace AutoReportWizard.Infrastructure
             return data;
         }
 
-        /// <summary>
-        /// Tests connectivity to the target server/database using Windows Auth.
-        /// Returns null on success, or an error message string on failure.
-        /// </summary>
-        public async Task<string?> TestConnectionAsync(
-            ReportDefinition def,
-            CancellationToken cancellationToken = default)
+        public async Task<string?> TestConnectionAsync(ReportDefinition def, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -382,15 +301,11 @@ namespace AutoReportWizard.Infrastructure
                 {
                     await using var connection = new SqlConnection(def.BuildConnectionString());
                     await connection.OpenAsync(ct);
-                    // Fire a trivial query to confirm the database is accessible
-                    await using var cmd = new SqlCommand("SELECT DB_NAME()", connection)
-                    {
-                        CommandTimeout = 10
-                    };
+                    await using var cmd = new SqlCommand("SELECT DB_NAME()", connection) { CommandTimeout = 10 };
                     await cmd.ExecuteScalarAsync(ct);
                 }, cancellationToken);
 
-                return null;  // success
+                return null; 
             }
             catch (Exception ex)
             {
@@ -398,83 +313,66 @@ namespace AutoReportWizard.Infrastructure
             }
         }
 
-        /// <summary>
-        /// Imports schema directly from an existing Stored Procedure.
-        /// Executes the raw query string provided (e.g., EXEC [sp] 'param1', 'param2').
-        /// </summary>
-        public async Task<List<ReportField>> ImportStoredProcedureSchemaAsync(string connectionString, string spName, Dictionary<string, object> testParameters, CancellationToken cancellationToken = default)
+        // ── Type Mapping & Helpers ──────────────────────────────────────────────
+
+        private static ReportField MapToReportField(string colName, string sqlType, int order)
         {
-            var fields = new List<ReportField>();
-
-            await _resilience.ExecuteAsync(async ct =>
+            return new ReportField
             {
-                await using var connection = new SqlConnection(connectionString);
-                await connection.OpenAsync(ct);
-
-                await using var cmd = new SqlCommand(spName, connection);
-                cmd.CommandType = CommandType.Text;
-                cmd.CommandTimeout = ReportDefinition.SchemaTimeoutSeconds;
-
-                // Phase 1 Fix: Use SchemaOnly to prevent heavy data execution during discovery
-                await using var reader = await cmd.ExecuteReaderAsync(ct);
-                var schemaTable = reader.GetSchemaTable();
-
-                if (schemaTable != null)
-                {
-                    int displayOrder = 0;
-                    foreach (DataRow row in schemaTable.Rows)
-                    {
-                        string columnName = row["ColumnName"].ToString() ?? string.Empty;
-
-                        // Guardrail against empty column names returned by bad SPs
-                        if (string.IsNullOrWhiteSpace(columnName)) continue;
-
-                        string dataType = row["DataType"]?.ToString() ?? "System.String";
-
-                        fields.Add(new ReportField
-                        {
-                            Name = columnName,
-                            DotNetType = dataType,
-                            IsDetailField = true,
-                            DisplayOrder = displayOrder++,
-                            ItemWidth = 120,
-                            ItemHeight = 32,
-                            CanvasX = 16,
-                            CanvasY = 16,
-                            TextAlign = "Default",
-                            FontWeight = "Normal",
-                            BorderColor = "LightGrey"
-                        });
-                    }
-                }
-            }, cancellationToken);
-
-            return fields;
+                Name = colName,
+                SqlDataType = sqlType,
+                DotNetType = MapToDotNet(sqlType),
+                IsDetailField = true,
+                DisplayOrder = order,
+                ItemWidth = 120,
+                ItemHeight = 32,
+                CanvasX = 16,
+                CanvasY = 16,
+                TextAlign = "Default",
+                FontWeight = "Normal",
+                BorderColor = "LightGrey"
+            };
         }
 
-        // ── Type Mapping ────────────────────────────────────────────────────────
+        private static string BuildSqlDataType(string baseType, int maxLength, byte precision, byte scale)
+        {
+            string normalized = baseType.ToLowerInvariant();
+            return normalized switch
+            {
+                "char" or "varchar" or "binary" or "varbinary" => maxLength == -1 ? $"{baseType}(max)" : $"{baseType}({maxLength})",
+                "nchar" or "nvarchar" => maxLength == -1 ? $"{baseType}(max)" : $"{baseType}({maxLength / 2})",
+                "decimal" or "numeric" => $"{baseType}({precision},{scale})",
+                _ => baseType
+            };
+        }
+
+        private static string MapSqlTypeToRdlc(string sqlDataType)
+        {
+            string normalized = sqlDataType.ToLowerInvariant();
+            if (normalized.Contains("char") || normalized.Contains("text") || normalized.Contains("xml")) return "String";
+            if (normalized.Contains("int")) return "Integer";
+            if (normalized.Contains("date") || normalized.Contains("time")) return "DateTime";
+            if (normalized.Contains("decimal") || normalized.Contains("money") || normalized.Contains("numeric") || normalized.Contains("float") || normalized.Contains("real")) return "Float";
+            if (normalized.Contains("bit")) return "Boolean";
+            return "String";
+        }
 
         private static object ConvertParameterValue(ReportParameter parameter)
         {
             string rawValue = parameter.Value?.Trim() ?? string.Empty;
-            if (string.IsNullOrEmpty(rawValue) && parameter.AllowBlank)
-                return DBNull.Value;
+            if (string.IsNullOrEmpty(rawValue) && parameter.AllowBlank) return DBNull.Value;
 
             string typeName = parameter.SqlDataType;
             int typeLengthIndex = typeName.IndexOf('(');
-            if (typeLengthIndex >= 0)
-                typeName = typeName[..typeLengthIndex];
-
+            if (typeLengthIndex >= 0) typeName = typeName[..typeLengthIndex];
             typeName = typeName.Trim().ToLowerInvariant();
 
             return typeName switch
             {
                 "bigint" => long.Parse(rawValue, CultureInfo.InvariantCulture),
                 "bit" => ParseBit(rawValue),
-                "date" or "datetime" or "datetime2" or "smalldatetime" =>
-                    DateTime.Parse(rawValue, CultureInfo.InvariantCulture),
-                "decimal" or "money" or "numeric" or "smallmoney" =>
-                    decimal.Parse(rawValue, CultureInfo.InvariantCulture),
+                "date" or "datetime" or "datetime2" or "smalldatetime" => DateTime.Parse(rawValue, CultureInfo.InvariantCulture),
+                "decimal" or "money" or "numeric" or "smallmoney" => decimal.Parse(rawValue, CultureInfo.InvariantCulture),
                 "float" => double.Parse(rawValue, CultureInfo.InvariantCulture),
                 "int" => int.Parse(rawValue, CultureInfo.InvariantCulture),
                 "real" => float.Parse(rawValue, CultureInfo.InvariantCulture),
@@ -488,28 +386,10 @@ namespace AutoReportWizard.Infrastructure
 
         private static bool ParseBit(string rawValue)
         {
-            if (bool.TryParse(rawValue, out bool result))
-                return result;
-
-            return rawValue switch
-            {
-                "1" => true,
-                "0" => false,
-                _ => throw new FormatException($"Cannot convert '{rawValue}' to bit.")
-            };
+            if (bool.TryParse(rawValue, out bool result)) return result;
+            return rawValue switch { "1" => true, "0" => false, _ => throw new FormatException($"Cannot convert '{rawValue}' to bit.") };
         }
 
-        private static string QuoteIdentifier(string identifier)
-        {
-            if (string.IsNullOrWhiteSpace(identifier))
-                throw new ArgumentException("SQL identifier cannot be blank.", nameof(identifier));
-
-            return "[" + identifier.Replace("]", "]]") + "]";
-        }
-
-        public static string MapToDotNet(string sqlTypeName) =>
-            SqlTypeMap.TryGetValue(sqlTypeName, out string? dotNetType)
-                ? dotNetType
-                : "System.String";
+        public static string MapToDotNet(string sqlTypeName) => SqlTypeMap.TryGetValue(sqlTypeName, out string? dotNetType) ? dotNetType : "System.String";
     }
 }

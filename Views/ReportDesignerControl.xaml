@@ -18,7 +18,6 @@
              FontSize="12">
 
     <UserControl.Resources>
-        <!-- Converters for the Live Preview tab -->
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
         <infra:InverseBoolConverter x:Key="InvBool"/>
 
@@ -125,7 +124,6 @@
 
         <DataTemplate DataType="{x:Type models:TableComponent}">
             <Grid Width="{Binding Width}" Height="{Binding Height}">
-                <!-- Use a Rectangle for dashed borders in WPF -->
                 <Rectangle Stroke="{StaticResource AccentBrush}" 
                            StrokeThickness="2" 
                            StrokeDashArray="4 2" 
@@ -148,29 +146,36 @@
         </DataTemplate>
         
         <DataTemplate DataType="{x:Type models:TabularColumnComponent}">
-            <Border BorderBrush="#334155" BorderThickness="1" CornerRadius="8" Background="#1E293B">
+            <Border BorderBrush="#475569" BorderThickness="1" CornerRadius="4" Background="#1E293B">
                 <Grid Width="{Binding Width}" Height="{Binding Height}">
-                    <!-- Thumb encapsulating the whole field to drag as a locked unit -->
-                    <Thumb DragDelta="MoveThumb_DragDelta" Opacity="0" Cursor="SizeAll"/>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
                     
-                    <StackPanel Orientation="Vertical" Margin="4">
-                        <!-- Row 1: Editable Column Header -->
+                    <!-- Thumb encapsulating the whole field to drag as a locked unit -->
+                    <Thumb Grid.RowSpan="2" DragDelta="MoveThumb_DragDelta" Opacity="0" Cursor="SizeAll" Panel.ZIndex="10"/>
+
+                    <!-- Row 1: Editable Column Header -->
+                    <Border Grid.Row="0" Background="#334155" BorderBrush="#475569" BorderThickness="0,0,0,1" CornerRadius="3,3,0,0">
                         <TextBox Text="{Binding HeaderString, UpdateSourceTrigger=PropertyChanged}" 
                                  Background="Transparent" Foreground="White" BorderThickness="0" 
-                                 FontWeight="Bold" TextAlignment="Center" Margin="0,0,0,4"
+                                 FontWeight="Bold" TextAlignment="Center" VerticalAlignment="Center"
                                  ToolTip="Edit the printed column header name"/>
-                        
-                        <!-- Row 2: Database Field Selection Dropdown -->
+                    </Border>
+                    
+                    <!-- Row 2: Database Field Selection Dropdown (Data Cell) -->
+                    <Border Grid.Row="1" Background="#0F172A" CornerRadius="0,0,3,3" Padding="2">
                         <ComboBox ItemsSource="{Binding DataContext.Fields, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                   DisplayMemberPath="Name"
                                   SelectedValuePath="Name"
                                   SelectedValue="{Binding BoundField, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                  Background="#334155" 
-                                  Foreground="White" 
+                                  Background="Transparent" 
+                                  Foreground="#38BDF8" 
                                   BorderThickness="0" 
-                                  Padding="4"
-                                  ToolTip="Select the database field to display in this column"/>
-                    </StackPanel>
+                                  ToolTip="Select the database field to display in this column"
+                                  VerticalAlignment="Center"/>
+                    </Border>
                 </Grid>
             </Border>
         </DataTemplate>
@@ -178,11 +183,26 @@
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="200" MinWidth="150" MaxWidth="300"/>
+            <!-- Collapsible Data Sources & Toolbox Sidebar -->
+            <ColumnDefinition>
+                <ColumnDefinition.Style>
+                    <Style TargetType="ColumnDefinition">
+                        <Setter Property="Width" Value="260"/>
+                        <Setter Property="MinWidth" Value="220"/>
+                        <Setter Property="MaxWidth" Value="400"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsChecked, ElementName=LeftSidebarToggle}" Value="False">
+                                <Setter Property="Width" Value="0"/>
+                                <Setter Property="MinWidth" Value="0"/>
+                                <Setter Property="MaxWidth" Value="0"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ColumnDefinition.Style>
+            </ColumnDefinition>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="Auto"/>
-            <!-- Dynamically Bound Properties Column -->
             <ColumnDefinition>
                 <ColumnDefinition.Style>
                     <Style TargetType="ColumnDefinition">
@@ -190,7 +210,6 @@
                         <Setter Property="MinWidth" Value="240"/>
                         <Setter Property="MaxWidth" Value="400"/>
                         <Style.Triggers>
-                            <!-- Collapse to 0 width when toggle is unchecked -->
                             <DataTrigger Binding="{Binding IsChecked, ElementName=PropertiesToggle}" Value="False">
                                 <Setter Property="Width" Value="0"/>
                                 <Setter Property="MinWidth" Value="0"/>
@@ -202,68 +221,113 @@
             </ColumnDefinition>
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0"
-                Background="{StaticResource CardBackgroundBrush}"
-                BorderBrush="{StaticResource BorderBrush}"
-                BorderThickness="0,0,1,0">
+        <!-- LEFT SIDEBAR: Data Sources + Toolbox -->
+        <Border Grid.Column="0" Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <Border Grid.Row="0"
-                        Background="{StaticResource WindowBackgroundBrush}"
-                        Padding="12,10"
-                        BorderBrush="{StaticResource BorderBrush}"
-                        BorderThickness="0,0,0,1">
+                <!-- HEADER: Data Sources -->
+                <Border Grid.Row="0" Background="{StaticResource WindowBackgroundBrush}" Padding="12,10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <DockPanel>
+                        <ToggleButton x:Name="LeftSidebarToggle" IsChecked="True" DockPanel.Dock="Right" Width="24" Height="24" Margin="4,0,0,0" ToolTip="Collapse/Expand Sidebar" Cursor="Hand">
+                            <ToggleButton.Template>
+                                <ControlTemplate TargetType="ToggleButton">
+                                    <Border Background="Transparent" Padding="4">
+                                        <TextBlock Text="◀" FontSize="10" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" x:Name="CollapseIcon"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="False">
+                                            <Setter TargetName="CollapseIcon" Property="Text" Value="▶"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </ToggleButton.Template>
+                        </ToggleButton>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📊" FontSize="14" Margin="0,0,8,0"/>
+                            <TextBlock Text="DATA SOURCES" FontWeight="Bold" FontSize="11" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- DATA SOURCES TREE -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0">
+                    <TreeView x:Name="DataSourceTree" Background="Transparent" BorderThickness="0" Padding="8">
+                        <TreeView.Resources>
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="True"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                <Setter Property="FontSize" Value="12"/>
+                                <Setter Property="Padding" Value="4,2"/>
+                            </Style>
+                        </TreeView.Resources>
+                        
+                        <!-- Root: MainDataSource -->
+                        <TreeViewItem Header="📁 MainDataSource" IsExpanded="True">
+                            <!-- Parameters Node -->
+                            <TreeViewItem Header="⚙️ Parameters" IsExpanded="True" ItemsSource="{Binding DynamicParameters}">
+                                <TreeViewItem.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Tag="Parameter" Background="Transparent" PreviewMouseMove="DataSourceItem_MouseMove" Cursor="Hand" ToolTip="Drag to canvas to create parameter textbox">
+                                            <TextBlock Text="🔷 " Foreground="{StaticResource AccentGoldBrush}" FontWeight="Bold"/>
+                                            <TextBlock Text="{Binding ParameterName}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            <TextBlock Text="{Binding DataType, StringFormat=' ({0})'}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Margin="4,0,0,0"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </TreeViewItem.ItemTemplate>
+                            </TreeViewItem>
+                            
+                            <!-- Fields Node -->
+                            <TreeViewItem Header="📋 Fields" IsExpanded="True" ItemsSource="{Binding Fields}">
+                                <TreeViewItem.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Tag="Field" Background="Transparent" PreviewMouseMove="DataSourceItem_MouseMove" Cursor="Hand" ToolTip="Drag to canvas to create data field">
+                                            <TextBlock Text="📄 " Foreground="{StaticResource AccentBrush}" FontWeight="Bold"/>
+                                            <TextBlock Text="{Binding Name}" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                            <TextBlock Text="{Binding SqlDataType, StringFormat=' ({0})'}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Margin="4,0,0,0"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </TreeViewItem.ItemTemplate>
+                            </TreeViewItem>
+                        </TreeViewItem>
+                    </TreeView>
+                </ScrollViewer>
+
+                <!-- DIVIDER -->
+                <Border Grid.Row="2" Background="{StaticResource WindowBackgroundBrush}" Padding="12,10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,1">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="🧰" FontSize="14" Margin="0,0,8,0"/>
-                        <TextBlock Text="DESIGNER TOOLBOX"
-                                   FontWeight="Bold"
-                                   FontSize="11"
-                                   VerticalAlignment="Center"
-                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <TextBlock Text="TOOLBOX" FontWeight="Bold" FontSize="11" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
                     </StackPanel>
                 </Border>
 
-                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="10">
+                <!-- TOOLBOX ITEMS -->
+                <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="10" MaxHeight="300">
                     <StackPanel>
-                        <TextBlock Text="Drag elements onto the canvas:"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   FontSize="11"
-                                   FontWeight="Medium"
-                                   Margin="0,0,0,12"
-                                   TextWrapping="Wrap"/>
-                        <!-- Table (Tablix) Tool -->
-                            <!-- Table Column Tool -->
-<ListBoxItem Style="{StaticResource ToolboxItemStyle}"
-             Tag="Column"
-             MouseMove="ToolboxItem_MouseMove">
-    <StackPanel Orientation="Horizontal">
-        <TextBlock Text="◫ " Foreground="{StaticResource AccentBrush}" FontWeight="Bold"/>
-        <TextBlock Text="Table Column" Foreground="{StaticResource TextPrimaryBrush}"/>
-    </StackPanel>
-</ListBoxItem>
-                        <ListBox x:Name="ToolboxList"
-                                 Background="Transparent"
-                                 BorderThickness="0"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <TextBlock Text="Drag components onto canvas:" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" FontWeight="Medium" Margin="0,0,0,12" TextWrapping="Wrap"/>
+                        
+                        <ListBoxItem Style="{StaticResource ToolboxItemStyle}" Tag="Column" MouseMove="ToolboxItem_MouseMove">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="◫ " Foreground="{StaticResource AccentBrush}" FontWeight="Bold"/>
+                                <TextBlock Text="Table Column" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </StackPanel>
+                        </ListBoxItem>
+                        
+                        <ListBox x:Name="ToolboxList" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                             
-                            <!-- TextBlock Tool -->
-                            <ListBoxItem Style="{StaticResource ToolboxItemStyle}"
-                                         Tag="Text"
-                                         MouseMove="ToolboxItem_MouseMove">
+                            <ListBoxItem Style="{StaticResource ToolboxItemStyle}" Tag="Text" MouseMove="ToolboxItem_MouseMove">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="🔤 " Foreground="{StaticResource AccentBrush}" FontWeight="Bold"/>
                                     <TextBlock Text="TextBlock (Label)" Foreground="{StaticResource TextPrimaryBrush}"/>
                                 </StackPanel>
                             </ListBoxItem>
 
-                            <!-- Separator Line Tool -->
-                            <ListBoxItem Style="{StaticResource ToolboxItemStyle}"
-                                         Tag="Line"
-                                         MouseMove="ToolboxItem_MouseMove">
+                            <ListBoxItem Style="{StaticResource ToolboxItemStyle}" Tag="Line" MouseMove="ToolboxItem_MouseMove">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="➖ " Foreground="{StaticResource AccentGoldBrush}" FontWeight="Bold"/>
                                     <TextBlock Text="Separator Line" Foreground="{StaticResource TextPrimaryBrush}"/>
@@ -275,29 +339,26 @@
             </Grid>
         </Border>
 
-        <GridSplitter Grid.Column="1"
-                      Width="4"
-                      HorizontalAlignment="Stretch"
-                      Background="{DynamicResource PanelBackgroundBrush}"
-                      ResizeBehavior="PreviousAndNext"/>
+        <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch" Background="{DynamicResource PanelBackgroundBrush}" ResizeBehavior="PreviousAndNext"/>
 
         <Grid Grid.Column="2" Background="{DynamicResource PanelBackgroundBrush}">
-            <!-- Toggle Button for Properties Sidebar -->
-            <ToggleButton x:Name="PropertiesToggle"
-                          IsChecked="False"
-                          HorizontalAlignment="Right"
-                          VerticalAlignment="Top"
-                          Margin="0,2,8,0"
-                          Panel.ZIndex="10"
-                          Cursor="Hand"
-                          ToolTip="Toggle Properties Sidebar">
+            <!-- Collapse/Expand Button for Left Sidebar (floats over canvas) -->
+            <ToggleButton x:Name="LeftSidebarCollapseButton" IsChecked="{Binding IsChecked, ElementName=LeftSidebarToggle}" 
+                          HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8,8,0,0" Panel.ZIndex="100" 
+                          Width="32" Height="32" Cursor="Hand" ToolTip="Toggle Data Sources Sidebar">
                 <ToggleButton.Template>
                     <ControlTemplate TargetType="ToggleButton">
-                        <Border Background="{DynamicResource HeaderBackgroundBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="1"
-                                CornerRadius="3"
-                                Padding="8,4">
+                        <Border Background="{DynamicResource HeaderBackgroundBrush}" BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2" CornerRadius="4" Padding="6">
+                            <TextBlock Text="📊" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </ToggleButton.Template>
+            </ToggleButton>
+            
+            <ToggleButton x:Name="PropertiesToggle" IsChecked="False" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,8,0" Panel.ZIndex="10" Cursor="Hand" ToolTip="Toggle Properties Sidebar">
+                <ToggleButton.Template>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Background="{DynamicResource HeaderBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="8,4">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="⚙️" Margin="0,0,6,0" FontSize="11" VerticalAlignment="Center"/>
                                 <TextBlock Text="Properties" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
@@ -323,15 +384,8 @@
                         <Setter Property="Template">
                             <Setter.Value>
                                 <ControlTemplate TargetType="TabItem">
-                                    <Border x:Name="TabBorder"
-                                            Background="{TemplateBinding Background}"
-                                            BorderThickness="0,2,0,0"
-                                            BorderBrush="Transparent"
-                                            Margin="0,0,1,0">
-                                        <ContentPresenter x:Name="ContentSite"
-                                                          ContentSource="Header"
-                                                          HorizontalAlignment="Center"
-                                                          VerticalAlignment="Center"/>
+                                    <Border x:Name="TabBorder" Background="{TemplateBinding Background}" BorderThickness="0,2,0,0" BorderBrush="Transparent" Margin="0,0,1,0">
+                                        <ContentPresenter x:Name="ContentSite" ContentSource="Header" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsSelected" Value="True">
@@ -357,10 +411,7 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
-                        <Border Grid.Row="0"
-                                Background="{DynamicResource HeaderBackgroundBrush}"
-                                BorderBrush="{DynamicResource BorderBrush}"
-                                BorderThickness="0,0,0,1">
+                        <Border Grid.Row="0" Background="{DynamicResource HeaderBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
                             <Grid>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="50,0,0,0">
                                     <TextBlock Text="0px" Foreground="#808080" FontSize="9" Width="100"/>
@@ -374,19 +425,9 @@
                             </Grid>
                         </Border>
 
-                        <ScrollViewer Grid.Row="1"
-                                      HorizontalScrollBarVisibility="Auto"
-                                      VerticalScrollBarVisibility="Auto"
-                                      Background="{DynamicResource PanelBackgroundBrush}">
+                        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="{DynamicResource PanelBackgroundBrush}">
                             <Grid Margin="30">
-                                <Border Background="{StaticResource WindowBackgroundBrush}"
-                                        BorderBrush="{StaticResource BorderBrush}"
-                                        BorderThickness="1"
-                                        Width="794"
-                                        Height="1123"
-                                        SnapsToDevicePixels="True"
-                                        CornerRadius="16"
-                                        x:Name="CanvasSurface">
+                                <Border Background="{StaticResource WindowBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Width="794" Height="1123" SnapsToDevicePixels="True" CornerRadius="16" x:Name="CanvasSurface">
                                     <Border.Effect>
                                         <DropShadowEffect Color="#000000" BlurRadius="30" Opacity="0.4" ShadowDepth="8" Direction="270"/>
                                     </Border.Effect>
@@ -411,37 +452,23 @@
                                         
                                         <!-- ZONE INDICATORS -->
                                         <StackPanel IsHitTestVisible="False">
-                                            <!-- Page Header Zone -->
                                             <Border Height="180" Background="#0AFFFFFF" BorderBrush="#334155" BorderThickness="0,0,0,2">
                                                 <TextBlock Text="PAGE HEADER" Foreground="#334155" FontWeight="Bold" FontSize="18" Margin="16" HorizontalAlignment="Right" VerticalAlignment="Top"/>
                                             </Border>
-                                            <!-- Body Zone -->
                                             <Border Height="793" Background="Transparent">
                                                 <TextBlock Text="REPORT BODY" Foreground="#334155" FontWeight="Bold" FontSize="18" Margin="16" HorizontalAlignment="Right" VerticalAlignment="Top"/>
                                             </Border>
-                                            <!-- Page Footer Zone -->
                                             <Border Height="150" Background="#0AFFFFFF" BorderBrush="#334155" BorderThickness="0,2,0,0">
                                                 <TextBlock Text="PAGE FOOTER" Foreground="#334155" FontWeight="Bold" FontSize="18" Margin="16" HorizontalAlignment="Right" VerticalAlignment="Top"/>
                                             </Border>
                                         </StackPanel>
 
-                                        <ListBox x:Name="DesignerCanvas"
-                                                 ItemsSource="{Binding CanvasComponents}"
-                                                 SelectedItem="{Binding SelectedComponent}"
-                                                 Background="Transparent"
-                                                 BorderThickness="0"
-                                                 AllowDrop="True"
-                                                 DragEnter="Canvas_DragEnter"
-                                                 DragOver="Canvas_DragOver"
-                                                 Drop="Canvas_Drop"
-                                                 PreviewKeyDown="Canvas_PreviewKeyDown">
-
+                                        <ListBox x:Name="DesignerCanvas" ItemsSource="{Binding CanvasComponents}" SelectedItem="{Binding SelectedComponent}" Background="Transparent" BorderThickness="0" AllowDrop="True" DragEnter="Canvas_DragEnter" DragOver="Canvas_DragOver" Drop="Canvas_Drop" PreviewKeyDown="Canvas_PreviewKeyDown">
                                             <ListBox.ItemsPanel>
                                                 <ItemsPanelTemplate>
                                                     <Canvas Background="Transparent" IsItemsHost="True"/>
                                                 </ItemsPanelTemplate>
                                             </ListBox.ItemsPanel>
-
                                             <ListBox.ItemContainerStyle>
                                                 <Style TargetType="ListBoxItem">
                                                     <Setter Property="Canvas.Left" Value="{Binding X, Mode=TwoWay}"/>
@@ -449,40 +476,27 @@
                                                     <Setter Property="Panel.ZIndex" Value="{Binding ZIndex}"/>
                                                     <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                                     <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+                                                    <!-- CONTEXT MENU FOR EASY DELETION -->
+                                                    <Setter Property="ContextMenu">
+                                                        <Setter.Value>
+                                                            <ContextMenu>
+                                                                <MenuItem Header="🗑️ Delete Component" Command="{Binding DataContext.DeleteComponentCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                                            </ContextMenu>
+                                                        </Setter.Value>
+                                                    </Setter>
                                                     <Setter Property="Template">
                                                         <Setter.Value>
                                                             <ControlTemplate TargetType="ListBoxItem">
                                                                 <Grid>
-                                                                    <Border x:Name="ItemBorder"
-                                                                            BorderThickness="1"
-                                                                            BorderBrush="Transparent"
-                                                                            Background="Transparent"
-                                                                            Padding="1"
-                                                                            CornerRadius="4"
-                                                                            MouseDown="CanvasItem_MouseDown">
+                                                                    <Border x:Name="ItemBorder" BorderThickness="1" BorderBrush="Transparent" Background="Transparent" Padding="1" CornerRadius="4" MouseDown="CanvasItem_MouseDown">
                                                                         <ContentPresenter/>
                                                                     </Border>
-
                                                                     <Canvas x:Name="SelectionAdorners" Visibility="Collapsed" IsHitTestVisible="True">
-                                                                        <Rectangle Stroke="{StaticResource AccentGradient}"
-                                                                                   StrokeDashArray="4 2"
-                                                                                   StrokeThickness="1.5"
-                                                                                   Width="{Binding Width}"
-                                                                                   Height="{Binding Height}"
-                                                                                   Margin="1">
-                                                                            <Rectangle.Effect>
-                                                                                <DropShadowEffect Color="#7C3AED" BlurRadius="8" ShadowDepth="0" Opacity="0.6"/>
-                                                                            </Rectangle.Effect>
+                                                                        <Rectangle Stroke="{StaticResource AccentGradient}" StrokeDashArray="4 2" StrokeThickness="1.5" Width="{Binding Width}" Height="{Binding Height}" Margin="1">
+                                                                            <Rectangle.Effect><DropShadowEffect Color="#7C3AED" BlurRadius="8" ShadowDepth="0" Opacity="0.6"/></Rectangle.Effect>
                                                                         </Rectangle>
-
-                                                                        <Border Background="{StaticResource AccentGradient}"
-                                                                                CornerRadius="4"
-                                                                                Padding="4,2"
-                                                                                Canvas.Top="-20"
-                                                                                Canvas.Left="0">
-                                                                            <Border.Effect>
-                                                                                <DropShadowEffect Color="#7C3AED" BlurRadius="10" ShadowDepth="0" Opacity="0.5"/>
-                                                                            </Border.Effect>
+                                                                        <Border Background="{StaticResource AccentGradient}" CornerRadius="4" Padding="4,2" Canvas.Top="-20" Canvas.Left="0">
+                                                                            <Border.Effect><DropShadowEffect Color="#7C3AED" BlurRadius="10" ShadowDepth="0" Opacity="0.5"/></Border.Effect>
                                                                             <StackPanel Orientation="Horizontal">
                                                                                 <TextBlock Text="X:" Foreground="#99FFFFFF" FontSize="8" FontWeight="Bold"/>
                                                                                 <TextBlock Text="{Binding X, StringFormat={}{0:F0}}" Foreground="White" FontSize="8" Margin="1,0,4,0"/>
@@ -494,20 +508,8 @@
                                                                                 <TextBlock Text="{Binding Height, StringFormat={}{0:F0}}" Foreground="White" FontSize="8"/>
                                                                             </StackPanel>
                                                                         </Border>
-
-                                                                        <Thumb x:Name="ResizeHandleSE"
-                                                                               Width="10"
-                                                                               Height="10"
-                                                                               Background="{StaticResource AccentGradient}"
-                                                                               BorderBrush="White"
-                                                                               BorderThickness="1.5"
-                                                                               Cursor="SizeNWSE"
-                                                                               Canvas.Left="{Binding Width}"
-                                                                               Canvas.Top="{Binding Height}"
-                                                                               DragDelta="ResizeHandle_DragDelta">
-                                                                            <Thumb.Effect>
-                                                                                <DropShadowEffect Color="#7C3AED" BlurRadius="6" ShadowDepth="0" Opacity="0.6"/>
-                                                                            </Thumb.Effect>
+                                                                        <Thumb x:Name="ResizeHandleSE" Width="10" Height="10" Background="{StaticResource AccentGradient}" BorderBrush="White" BorderThickness="1.5" Cursor="SizeNWSE" Canvas.Left="{Binding Width}" Canvas.Top="{Binding Height}" DragDelta="ResizeHandle_DragDelta">
+                                                                            <Thumb.Effect><DropShadowEffect Color="#7C3AED" BlurRadius="6" ShadowDepth="0" Opacity="0.6"/></Thumb.Effect>
                                                                         </Thumb>
                                                                     </Canvas>
                                                                 </Grid>
@@ -540,36 +542,16 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
-                        <Border Grid.Row="0"
-                                Background="{StaticResource WindowBackgroundBrush}"
-                                BorderBrush="{StaticResource BorderBrush}"
-                                BorderThickness="0,0,0,1"
-                                Padding="16,10">
+                        <Border Grid.Row="0" Background="{StaticResource WindowBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="16,10">
                             <Grid>
-                                <TextBlock Text="📄 This is a high-fidelity rendering of your compiled layout. All handles and grid indicators are removed."
-                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                           FontSize="12"
-                                           VerticalAlignment="Center"/>
-                                <Button Content="🖨️ Export PDF / Print Layout"
-                                        HorizontalAlignment="Right"
-                                        Padding="12,8"
-                                        Style="{StaticResource NeoPillButton}"
-                                        Click="PrintReport_Click"/>
+                                <TextBlock Text="📄 This is a high-fidelity rendering of your compiled layout. All handles and grid indicators are removed." Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
+                                <Button Content="🖨️ Export PDF / Print Layout" HorizontalAlignment="Right" Padding="12,8" Style="{StaticResource NeoPillButton}" Click="PrintReport_Click"/>
                             </Grid>
                         </Border>
 
-                        <ScrollViewer Grid.Row="1"
-                                      Background="{DynamicResource PanelBackgroundBrush}"
-                                      HorizontalScrollBarVisibility="Auto"
-                                      VerticalScrollBarVisibility="Auto">
+                        <ScrollViewer Grid.Row="1" Background="{DynamicResource PanelBackgroundBrush}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                             <Grid Margin="30">
-                                <Border Background="White"
-                                        BorderBrush="{StaticResource BorderBrush}"
-                                        BorderThickness="1"
-                                        Width="794"
-                                        Height="1123"
-                                        SnapsToDevicePixels="True"
-                                        CornerRadius="2">
+                                <Border Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Width="794" Height="1123" SnapsToDevicePixels="True" CornerRadius="2">
                                     <Border.Effect>
                                         <DropShadowEffect Color="#000000" BlurRadius="30" Opacity="0.5" ShadowDepth="8" Direction="270"/>
                                     </Border.Effect>
@@ -589,34 +571,17 @@
 
                                         <ItemsControl.Resources>
                                             <DataTemplate DataType="{x:Type models:TextComponent}">
-                                                <TextBlock Text="{Binding Text}"
-                                                           FontSize="{Binding FontSize}"
-                                                           FontFamily="{Binding FontFamily}"
-                                                           Foreground="Black"
-                                                           Width="{Binding Width}"
-                                                           Height="{Binding Height}"
-                                                           TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding Text}" FontSize="{Binding FontSize}" FontFamily="{Binding FontFamily}" Foreground="Black" Width="{Binding Width}" Height="{Binding Height}" TextWrapping="Wrap"/>
                                             </DataTemplate>
-
                                             <DataTemplate DataType="{x:Type models:ImageComponent}">
                                                 <Grid Width="{Binding Width}" Height="{Binding Height}">
                                                     <Image Source="{Binding SourcePath, TargetNullValue={x:Null}}" Stretch="Uniform"/>
                                                 </Grid>
                                             </DataTemplate>
-
                                             <DataTemplate DataType="{x:Type models:LineComponent}">
                                                 <Grid Width="{Binding Width}" Height="{Binding Height}">
-                                                    <Rectangle Fill="Black"
-                                                               Height="1.5"
-                                                               VerticalAlignment="Center"
-                                                               HorizontalAlignment="Stretch"
-                                                               x:Name="HLine"/>
-                                                    <Rectangle Fill="Black"
-                                                               Width="1.5"
-                                                               HorizontalAlignment="Center"
-                                                               VerticalAlignment="Stretch"
-                                                               x:Name="VLine"
-                                                               Visibility="Collapsed"/>
+                                                    <Rectangle Fill="Black" Height="1.5" VerticalAlignment="Center" HorizontalAlignment="Stretch" x:Name="HLine"/>
+                                                    <Rectangle Fill="Black" Width="1.5" HorizontalAlignment="Center" VerticalAlignment="Stretch" x:Name="VLine" Visibility="Collapsed"/>
                                                 </Grid>
                                                 <DataTemplate.Triggers>
                                                     <DataTrigger Binding="{Binding Orientation}" Value="Vertical">
@@ -636,31 +601,19 @@
                 <TabItem Header="▶ Live Preview" x:Name="LivePreviewTab">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <!-- Left: parameter sidebar (fixed, min 200, max 340) -->
                             <ColumnDefinition Width="260" MinWidth="200" MaxWidth="340"/>
                             <ColumnDefinition Width="Auto"/>
-                            <!-- Right: ReportViewer host -->
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- ── Parameter Sidebar ─────────────────────────────── -->
-                        <Border Grid.Column="0"
-                                Background="{StaticResource CardBackgroundBrush}"
-                                BorderBrush="{StaticResource BorderBrush}"
-                                BorderThickness="0,0,1,0">
+                        <Border Grid.Column="0" Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
-
-                                <!-- Sidebar header -->
-                                <Border Grid.Row="0"
-                                        Background="{StaticResource WindowBackgroundBrush}"
-                                        BorderBrush="{StaticResource BorderBrush}"
-                                        BorderThickness="0,0,0,1"
-                                        Padding="12,10">
+                                <Border Grid.Row="0" Background="{StaticResource WindowBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="12,10">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="⚙️" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center"/>
                                         <StackPanel VerticalAlignment="Center">
@@ -669,17 +622,9 @@
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>
-
-                                <!-- Parameter list -->
                                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="12,10">
                                     <StackPanel>
-                                        <!-- Empty-state message when no parameters exist -->
-                                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}"
-                                                   FontSize="13"
-                                                   TextWrapping="Wrap"
-                                                   Margin="0,12,0,0"
-                                                   TextAlignment="Center"
-                                                   Text="No parameters defined. Add parameters in Step 4 to filter your report data.">
+                                        <TextBlock Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" TextWrapping="Wrap" Margin="0,12,0,0" TextAlignment="Center" Text="No parameters defined. Add parameters in Step 4 to filter your report data.">
                                             <TextBlock.Style>
                                                 <Style TargetType="TextBlock">
                                                     <Setter Property="Visibility" Value="Collapsed"/>
@@ -691,28 +636,16 @@
                                                 </Style>
                                             </TextBlock.Style>
                                         </TextBlock>
-
-                                        <!-- Dynamic parameter inputs -->
                                         <ItemsControl ItemsSource="{Binding DynamicParameters}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Border Margin="0,0,0,16"
-                                                            Padding="12,10"
-                                                            Background="{StaticResource WindowBackgroundBrush}"
-                                                            BorderBrush="{StaticResource BorderBrush}"
-                                                            BorderThickness="1"
-                                                            CornerRadius="8">
+                                                    <Border Margin="0,0,0,16" Padding="12,10" Background="{StaticResource WindowBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8">
                                                         <StackPanel>
                                                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                                                 <TextBlock Text="{Binding PromptText}" Foreground="{StaticResource AccentGoldBrush}" FontSize="12" FontWeight="SemiBold"/>
                                                                 <TextBlock Text="{Binding ParameterName, StringFormat=' ({0})'}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Margin="4,0,0,0" VerticalAlignment="Bottom"/>
                                                             </StackPanel>
-                                                            <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}"
-                                                                     Background="Transparent"
-                                                                     Foreground="{StaticResource TextPrimaryBrush}"
-                                                                     BorderThickness="0"
-                                                                     Padding="0"
-                                                                     FontSize="13"/>
+                                                            <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0" FontSize="13"/>
                                                         </StackPanel>
                                                     </Border>
                                                 </DataTemplate>
@@ -720,60 +653,23 @@
                                         </ItemsControl>
                                     </StackPanel>
                                 </ScrollViewer>
-
-                                <!-- Render button + error area -->
-                                <Border Grid.Row="2"
-                                        Background="{StaticResource WindowBackgroundBrush}"
-                                        BorderBrush="{StaticResource BorderBrush}"
-                                        BorderThickness="0,1,0,0"
-                                        Padding="12,10">
+                                <Border Grid.Row="2" Background="{StaticResource WindowBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="12,10">
                                     <StackPanel>
-                                        <!-- Inline error feedback -->
-                                        <Border Background="#3B0000"
-                                                BorderBrush="#7F1D1D"
-                                                BorderThickness="1"
-                                                CornerRadius="8"
-                                                Padding="10,8"
-                                                Margin="0,0,0,12"
-                                                Visibility="{Binding HasPreviewError, Converter={StaticResource BoolToVis}}">
+                                        <Border Background="#3B0000" BorderBrush="#7F1D1D" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,12" Visibility="{Binding HasPreviewError, Converter={StaticResource BoolToVis}}">
                                             <TextBlock Text="{Binding PreviewError}" Foreground="#FF7777" FontSize="11" TextWrapping="Wrap" MaxHeight="60"/>
                                         </Border>
-
-                                        <!-- Render / loading indicator -->
-                                        <Button Content="▶  Render Report"
-                                                Command="{Binding RunPreviewCommand}"
-                                                IsEnabled="{Binding IsPreviewRunning, Converter={StaticResource InvBool}}"
-                                                Style="{StaticResource NeoPillButton}"
-                                                Padding="0,12"
-                                                HorizontalContentAlignment="Center"/>
-
-                                        <!-- Spinner shown while preview is running -->
-                                        <TextBlock Text="⏳  Rendering…"
-                                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                                   FontSize="12"
-                                                   FontWeight="Medium"
-                                                   HorizontalAlignment="Center"
-                                                   Margin="0,12,0,0"
-                                                   Visibility="{Binding IsPreviewRunning, Converter={StaticResource BoolToVis}}"/>
+                                        <Button Content="▶  Render Report" Command="{Binding RunPreviewCommand}" IsEnabled="{Binding IsPreviewRunning, Converter={StaticResource InvBool}}" Style="{StaticResource NeoPillButton}" Padding="0,12" HorizontalContentAlignment="Center"/>
+                                        <TextBlock Text="⏳  Rendering…" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" FontWeight="Medium" HorizontalAlignment="Center" Margin="0,12,0,0" Visibility="{Binding IsPreviewRunning, Converter={StaticResource BoolToVis}}"/>
                                     </StackPanel>
                                 </Border>
                             </Grid>
                         </Border>
 
-                        <!-- ── Splitter ──────────────────────────────────────── -->
-                        <GridSplitter Grid.Column="1"
-                                      Width="4"
-                                      HorizontalAlignment="Stretch"
-                                      Background="{DynamicResource PanelBackgroundBrush}"
-                                      ResizeBehavior="PreviousAndNext"/>
+                        <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch" Background="{DynamicResource PanelBackgroundBrush}" ResizeBehavior="PreviousAndNext"/>
 
-                        <!-- ── ReportViewer Host (right panel) ───────────────── -->
                         <Border Grid.Column="2" Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0">
                             <Grid>
-                                <!-- WindowsFormsHost: populated in code-behind -->
                                 <wf:WindowsFormsHost x:Name="ReportHost" Visibility="{Binding HasPreviewData, Converter={StaticResource BoolToVis}}"/>
-
-                                <!-- Placeholder shown before first render -->
                                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                     <StackPanel.Style>
                                         <Style TargetType="StackPanel">
@@ -787,29 +683,18 @@
                                     </StackPanel.Style>
                                     <TextBlock Text="▶" FontSize="48" Foreground="{StaticResource BorderBrush}" HorizontalAlignment="Center" Margin="0,0,0,20"/>
                                     <TextBlock Text="Click  ▶ Render Report  to generate a live preview" Foreground="{StaticResource TextSecondaryBrush}" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center"/>
-                                    <TextBlock Text="The viewer uses your field layout, column widths, and page header configuration."
-                                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,10,0,0" TextWrapping="Wrap" MaxWidth="380"
-                                               HorizontalAlignment="Center" TextAlignment="Center" Opacity="0.7"/>
+                                    <TextBlock Text="The viewer uses your field layout, column widths, and page header configuration." Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,10,0,0" TextWrapping="Wrap" MaxWidth="380" HorizontalAlignment="Center" TextAlignment="Center" Opacity="0.7"/>
                                 </StackPanel>
                             </Grid>
                         </Border>
                     </Grid>
                 </TabItem>
-
             </TabControl>
         </Grid>
 
-        <GridSplitter Grid.Column="3"
-                      Width="4"
-                      HorizontalAlignment="Stretch"
-                      Background="{DynamicResource PanelBackgroundBrush}"
-                      ResizeBehavior="PreviousAndNext"
-                      Visibility="{Binding IsChecked, ElementName=PropertiesToggle, Converter={StaticResource BoolToVis}}"/>
+        <GridSplitter Grid.Column="3" Width="4" HorizontalAlignment="Stretch" Background="{DynamicResource PanelBackgroundBrush}" ResizeBehavior="PreviousAndNext" Visibility="{Binding IsChecked, ElementName=PropertiesToggle, Converter={StaticResource BoolToVis}}"/>
 
-        <Border Grid.Column="4"
-                Background="{StaticResource CardBackgroundBrush}"
-                BorderBrush="{StaticResource BorderBrush}"
-                BorderThickness="1,0,0,0">
+        <Border Grid.Column="4" Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -817,24 +702,13 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <Border Grid.Row="0"
-                        Background="{StaticResource WindowBackgroundBrush}"
-                        Padding="12,10"
-                        BorderBrush="{StaticResource BorderBrush}"
-                        BorderThickness="0,0,0,1">
+                <Border Grid.Row="0" Background="{StaticResource WindowBackgroundBrush}" Padding="12,10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
                     <Grid>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
                             <TextBlock Text="⚙️" FontSize="14" Margin="0,0,8,0"/>
                             <TextBlock Text="PROPERTIES GRID" FontWeight="Bold" FontSize="11" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"/>
                         </StackPanel>
-                        <Border x:Name="TypeBadgeBorder"
-                                HorizontalAlignment="Right"
-                                Background="{StaticResource AccentGradient}"
-                                BorderBrush="Transparent"
-                                BorderThickness="0"
-                                CornerRadius="4"
-                                Padding="6,2"
-                                Visibility="Collapsed">
+                        <Border x:Name="TypeBadgeBorder" HorizontalAlignment="Right" Background="{StaticResource AccentGradient}" BorderBrush="Transparent" BorderThickness="0" CornerRadius="4" Padding="6,2" Visibility="Collapsed">
                             <TextBlock Text="COMPONENT" FontSize="9" FontFamily="Consolas" Foreground="White" FontWeight="Bold" x:Name="TypeBadgeText"/>
                         </Border>
                     </Grid>
@@ -845,8 +719,7 @@
                         <StackPanel x:Name="NoSelectionPlaceholder" Margin="20,60,20,0" HorizontalAlignment="Center" VerticalAlignment="Center" TextBlock.TextAlignment="Center">
                             <TextBlock Text="❓" FontSize="36" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,16" Opacity="0.5"/>
                             <TextBlock Text="No Selection" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" FontSize="15" Margin="0,0,0,8"/>
-                            <TextBlock Text="Click on any element in the design canvas to configure its dimensions, position, and specific properties."
-                                       Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" LineHeight="16" MaxWidth="200"/>
+                            <TextBlock Text="Click on any element in the design canvas to configure its dimensions, position, and specific properties." Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" LineHeight="16" MaxWidth="200"/>
                         </StackPanel>
 
                         <Grid x:Name="PropertiesForm" DataContext="{Binding SelectedComponent}" Visibility="Collapsed">
@@ -854,48 +727,28 @@
                                 <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,0,0,16" Margin="0,0,0,16">
                                     <StackPanel>
                                         <TextBlock Text="LAYOUT (WPF CANVAS)" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" FontWeight="Bold" Margin="0,0,0,12"/>
-
                                         <Grid Margin="0,0,0,6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="100"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                             <TextBlock Text="Canvas.Left (X)" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                             <TextBox Grid.Column="1" Text="{Binding X, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0"/>
                                         </Grid>
-
                                         <Grid Margin="0,0,0,6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="100"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                             <TextBlock Text="Canvas.Top (Y)" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                             <TextBox Grid.Column="1" Text="{Binding Y, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0"/>
                                         </Grid>
-
                                         <Grid Margin="0,0,0,6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="100"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                             <TextBlock Text="Width (px)" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                             <TextBox Grid.Column="1" Text="{Binding Width, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0"/>
                                         </Grid>
-
                                         <Grid Margin="0,0,0,6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="100"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                             <TextBlock Text="Height (px)" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                             <TextBox Grid.Column="1" Text="{Binding Height, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0"/>
                                         </Grid>
-
                                         <Grid Margin="0,0,0,6">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="100"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                             <TextBlock Text="Z-Index Layer" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                                             <TextBox Grid.Column="1" Text="{Binding ZIndex, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0"/>
                                         </Grid>
@@ -905,93 +758,38 @@
                                 <TextBlock Text="SPECIFIC PROPERTIES" Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" FontWeight="Bold" Margin="0,0,0,12"/>
                                 <ContentControl Content="{Binding}">
                                     <ContentControl.Resources>
-
-                                    <DataTemplate DataType="{x:Type models:TabularColumnComponent}">
-    <StackPanel>
-        <TextBlock Text="Column Header Label" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
-        <TextBox Text="{Binding HeaderString, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                 Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0" Margin="0,0,0,12"/>
-
-        <TextBlock Text="Map to Database Field" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
-        <ComboBox ItemsSource="{Binding DataContext.Fields, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                  DisplayMemberPath="Name"
-                  SelectedValuePath="Name"
-                  SelectedValue="{Binding BoundField, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                  Background="{StaticResource WindowBackgroundBrush}" 
-                  Foreground="{StaticResource TextPrimaryBrush}" 
-                  BorderBrush="{StaticResource BorderBrush}"/>
-        
-        <TextBlock Text="SSRS Data Expression" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,16,0,6"/>
-        <TextBox Text="{Binding DataExpression, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                 IsReadOnly="True" Opacity="0.6"
-                 Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0"/>
-    </StackPanel>
-</DataTemplate>
+                                        <DataTemplate DataType="{x:Type models:TabularColumnComponent}">
+                                            <StackPanel>
+                                                <TextBlock Text="Column Header Label" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                                                <TextBox Text="{Binding HeaderString, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0" Margin="0,0,0,12"/>
+                                                <TextBlock Text="Map to Database Field" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                                                <ComboBox ItemsSource="{Binding DataContext.Fields, RelativeSource={RelativeSource AncestorType=UserControl}}" DisplayMemberPath="Name" SelectedValuePath="Name" SelectedValue="{Binding BoundField, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Background="{StaticResource WindowBackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}" BorderBrush="{StaticResource BorderBrush}"/>
+                                                <TextBlock Text="SSRS Data Expression" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,16,0,6"/>
+                                                <TextBox Text="{Binding DataExpression, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsReadOnly="True" Opacity="0.6" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                        
                                         <DataTemplate DataType="{x:Type models:TextComponent}">
                                             <StackPanel>
                                                 <TextBlock Text="Label Text / Expression" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
-                                                <TextBox Text="{Binding Text, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         AcceptsReturn="True" TextWrapping="Wrap" Height="70" VerticalScrollBarVisibility="Auto"
-                                                         Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0" Margin="0,0,0,12"/>
-
-                                                <Grid Margin="0,0,0,6">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="100"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="Font Size (pt)" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                                                    <TextBox Grid.Column="1" Text="{Binding FontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0"/>
-                                                </Grid>
-
-                                                <Grid Margin="0,0,0,6">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="100"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="Font Family" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                                                    <ComboBox Grid.Column="1" SelectedValue="{Binding FontFamily, Mode=TwoWay}" SelectedValuePath="Content" Background="{StaticResource WindowBackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}" BorderBrush="{StaticResource BorderBrush}">
-                                                        <ComboBoxItem Content="Segoe UI"/>
-                                                        <ComboBoxItem Content="Arial"/>
-                                                        <ComboBoxItem Content="Times New Roman"/>
-                                                        <ComboBoxItem Content="Courier New"/>
-                                                        <ComboBoxItem Content="Consolas"/>
-                                                    </ComboBox>
-                                                </Grid>
+                                                <TextBox Text="{Binding Text, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" Height="70" VerticalScrollBarVisibility="Auto" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0" Margin="0,0,0,12"/>
+                                                <Grid Margin="0,0,0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="Font Size (pt)" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/><TextBox Grid.Column="1" Text="{Binding FontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0"/></Grid>
+                                                <Grid Margin="0,0,0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="Font Family" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/><ComboBox Grid.Column="1" SelectedValue="{Binding FontFamily, Mode=TwoWay}" SelectedValuePath="Content" Background="{StaticResource WindowBackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}" BorderBrush="{StaticResource BorderBrush}"><ComboBoxItem Content="Segoe UI"/><ComboBoxItem Content="Arial"/><ComboBoxItem Content="Times New Roman"/><ComboBoxItem Content="Courier New"/><ComboBoxItem Content="Consolas"/></ComboBox></Grid>
                                             </StackPanel>
                                         </DataTemplate>
-
+                                        
                                         <DataTemplate DataType="{x:Type models:ImageComponent}">
                                             <StackPanel>
                                                 <TextBlock Text="Source Path (Local / URL)" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
-                                                <TextBox Text="{Binding SourcePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         TextWrapping="Wrap" Height="60" VerticalScrollBarVisibility="Auto"
-                                                         Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0" Margin="0,0,0,12"/>
+                                                <TextBox Text="{Binding SourcePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" TextWrapping="Wrap" Height="60" VerticalScrollBarVisibility="Auto" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0" Margin="0,0,0,12"/>
                                                 <TextBlock Text="e.g. C:\Assets\logo.png or http://..." Foreground="{StaticResource TextSecondaryBrush}" FontSize="10" Opacity="0.7"/>
                                             </StackPanel>
                                         </DataTemplate>
-
+                                        
                                         <DataTemplate DataType="{x:Type models:LineComponent}">
                                             <StackPanel>
-                                                <Grid Margin="0,0,0,6">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="100"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="Line Length" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                                                    <TextBox Grid.Column="1" Text="{Binding Length, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0"/>
-                                                </Grid>
-
-                                                <Grid Margin="0,0,0,6">
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="100"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="Orientation" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                                                    <ComboBox Grid.Column="1" SelectedValue="{Binding Orientation, Mode=TwoWay}" SelectedValuePath="Content" Background="{StaticResource WindowBackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}" BorderBrush="{StaticResource BorderBrush}">
-                                                        <ComboBoxItem Content="Horizontal"/>
-                                                        <ComboBoxItem Content="Vertical"/>
-                                                    </ComboBox>
-                                                </Grid>
+                                                <Grid Margin="0,0,0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="Line Length" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/><TextBox Grid.Column="1" Text="{Binding Length, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Background="Transparent" Foreground="{StaticResource TextPrimaryBrush}" BorderThickness="0" Padding="0"/></Grid>
+                                                <Grid Margin="0,0,0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><TextBlock Text="Orientation" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/><ComboBox Grid.Column="1" SelectedValue="{Binding Orientation, Mode=TwoWay}" SelectedValuePath="Content" Background="{StaticResource WindowBackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}" BorderBrush="{StaticResource BorderBrush}"><ComboBoxItem Content="Horizontal"/><ComboBoxItem Content="Vertical"/></ComboBox></Grid>
                                             </StackPanel>
                                         </DataTemplate>
                                     </ContentControl.Resources>
@@ -1001,25 +799,12 @@
                     </Grid>
                 </ScrollViewer>
 
-                <Border x:Name="FooterKeyboardGuide"
-                        Grid.Row="2"
-                        Background="{StaticResource WindowBackgroundBrush}"
-                        BorderBrush="{StaticResource BorderBrush}"
-                        BorderThickness="0,1,0,0"
-                        Padding="12"
-                        Visibility="Collapsed">
+                <Border x:Name="FooterKeyboardGuide" Grid.Row="2" Background="{StaticResource WindowBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="12" Visibility="Collapsed">
                     <StackPanel>
                         <TextBlock Text="KEYBOARD ACTIONS:" FontWeight="Bold" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
                         <TextBlock Text="• Drag element inside borders to reposition" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
                         <TextBlock Text="• Drag blue corner handle to resize" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"/>
-                        <Button Content="🗑️ Delete Component"
-                                Command="{Binding DataContext.DeleteComponentCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                Style="{StaticResource DarkBtn}"
-                                Foreground="#F43F5E"
-                                Padding="12,8"
-                                Margin="0,12,0,0"
-                                FontWeight="SemiBold"
-                                Cursor="Hand"/>
+                        <Button Content="🗑️ Delete Component" Command="{Binding DataContext.DeleteComponentCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Style="{StaticResource DarkBtn}" Foreground="#F43F5E" Padding="12,8" Margin="0,12,0,0" FontWeight="SemiBold" Cursor="Hand"/>
                     </StackPanel>
                 </Border>
             </Grid>
