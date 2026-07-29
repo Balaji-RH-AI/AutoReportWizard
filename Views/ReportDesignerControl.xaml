@@ -656,7 +656,16 @@
                                 <Border Grid.Row="2" Background="{StaticResource WindowBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="12,10">
                                     <StackPanel>
                                         <Border Background="#3B0000" BorderBrush="#7F1D1D" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,12" Visibility="{Binding HasPreviewError, Converter={StaticResource BoolToVis}}">
-                                            <TextBlock Text="{Binding PreviewError}" Foreground="#FF7777" FontSize="11" TextWrapping="Wrap" MaxHeight="60"/>
+                                            <ScrollViewer MaxHeight="250" VerticalScrollBarVisibility="Auto">
+                                                <TextBox Text="{Binding PreviewError, Mode=OneWay}" 
+                                                         IsReadOnly="True" 
+                                                         Background="Transparent" 
+                                                         Foreground="#FF7777" 
+                                                         FontSize="11" 
+                                                         TextWrapping="Wrap" 
+                                                         BorderThickness="0" 
+                                                         SelectionBrush="#7C3AED"/>
+                                            </ScrollViewer>
                                         </Border>
                                         <Button Content="▶  Render Report" Command="{Binding RunPreviewCommand}" IsEnabled="{Binding IsPreviewRunning, Converter={StaticResource InvBool}}" Style="{StaticResource NeoPillButton}" Padding="0,12" HorizontalContentAlignment="Center"/>
                                         <TextBlock Text="⏳  Rendering…" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" FontWeight="Medium" HorizontalAlignment="Center" Margin="0,12,0,0" Visibility="{Binding IsPreviewRunning, Converter={StaticResource BoolToVis}}"/>

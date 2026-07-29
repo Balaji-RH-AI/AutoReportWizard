@@ -147,9 +147,21 @@ namespace AutoReportWizard.Services
                 .Select(f =>
                 {
                     string alias = SanitizeIdentifier(f.GetDatasetFieldName());
+                    
+                    // ═══════════════════════════════════════════════════════════════════════════
+                    // FIELD NAME BINDING SAFETY: Ensure XML field name exactly matches DataColumn
+                    // ═══════════════════════════════════════════════════════════════════════════
+                    // The DataField value must match the actual column name from the DataTable.
+                    // If the SP returns "Amount Paid" (with space), we must reference it exactly.
+                    // However, the Field Name attribute must be a valid identifier (no spaces).
+                    // This creates the mapping: Fields!AmountPaid.Value → DataField="Amount Paid"
+                    
+                    string dataFieldName = f.GetDatasetFieldName();
+                    System.Diagnostics.Debug.WriteLine($"Dataset Field Mapping: Name='{alias}' → DataField='{dataFieldName}' (Type={f.DotNetType})");
+                    
                     return new XElement(Rdl + "Field",
                         new XAttribute("Name", alias),
-                        new XElement(Rdl + "DataField", f.GetDatasetFieldName()),
+                        new XElement(Rdl + "DataField", dataFieldName),  // Use original column name, not sanitized
                         new XElement(Rd + "TypeName", string.IsNullOrWhiteSpace(f.DotNetType) ? "System.String" : f.DotNetType));
                 });
 
@@ -169,6 +181,8 @@ namespace AutoReportWizard.Services
                 string paramName = param.Name.StartsWith("@") ? param.Name : "@" + param.Name;
                 string rdlcParamName = paramName.TrimStart('@');
                 
+                System.Diagnostics.Debug.WriteLine($"Query Parameter Mapping: {paramName} → Parameters!{rdlcParamName}.Value");
+                
                 queryParameters.Add(new XElement(Rdl + "QueryParameter",
                     new XAttribute("Name", paramName),
                     new XElement(Rdl + "Value", $"=Parameters!{rdlcParamName}.Value")));
@@ -185,9 +199,11 @@ namespace AutoReportWizard.Services
                 queryElement.Add(new XElement(Rdl + "QueryParameters", queryParameters));
             }
 
+            System.Diagnostics.Debug.WriteLine($"✓ Built DataSet 'MainDataSet' with {fields.Count()} fields and {queryParameters.Count} parameters");
+
             return new XElement(Rdl + "DataSets",
                 new XElement(Rdl + "DataSet",
-                    new XAttribute("Name", "MainDataSet"),
+                    new XAttribute("Name", "MainDataSet"),  // ⚠️ CRITICAL: Must match ReportPreviewService.DATA_SOURCE_NAME
                     queryElement,
                     new XElement(Rdl + "Fields", fields)));
         }
@@ -215,8 +231,9 @@ namespace AutoReportWizard.Services
                 return new XElement(Rdl + "ReportParameter",
                     new XAttribute("Name", rdlcName),
                     new XElement(Rdl + "DataType", string.IsNullOrWhiteSpace(rp.RdlcDataType) ? "String" : rp.RdlcDataType),
+                    new XElement(Rdl + "Nullable", "true"), 
                     rp.IsHidden ? new XElement(Rdl + "Hidden", "true") : null,
-                    new XElement(Rdl + "AllowBlank", rp.AllowBlank ? "true" : "false"),
+                    new XElement(Rdl + "AllowBlank", "true"), 
                     new XElement(Rdl + "Prompt", prompt));
             });
 
@@ -575,8 +592,16 @@ namespace AutoReportWizard.Services
                 // If the expression is empty (auto-generated) OR it's a standard field mapping, build the SSRS expression
                 if (fieldData != null && (string.IsNullOrWhiteSpace(expr) || expr.StartsWith("=Fields!")))
                 {
+                    // ═══════════════════════════════════════════════════════════════════════════
+                    // FIELD EXPRESSION BINDING SAFETY: Use sanitized identifier for expression
+                    // ═══════════════════════════════════════════════════════════════════════════
+                    // The Field Name in the dataset uses the sanitized identifier (no spaces),
+                    // but the DataField uses the original column name. The expression must
+                    // reference the sanitized Field Name, not the DataField value.
                     string fieldName = SanitizeIdentifier(fieldData.GetDatasetFieldName());
                     expr = $"=Fields!{fieldName}.Value";
+                    
+                    System.Diagnostics.Debug.WriteLine($"Detail Row Expression: Column '{c.HeaderString}' → {expr}");
                 }
 
                 return new XElement(Rdl + "TablixCell",
@@ -608,7 +633,11 @@ namespace AutoReportWizard.Services
                 else if (f != null && f.Aggregate != AggregateFunction.None)
                 {
                     string fieldName = SanitizeIdentifier(f.GetDatasetFieldName());
-                    textbox = BuildTextbox($"Txt_Total_{c.Id:N}", $"=Sum(Fields!{fieldName}.Value)",
+                    string sumExpr = $"=Sum(Fields!{fieldName}.Value)";
+                    
+                    System.Diagnostics.Debug.WriteLine($"Grand Totals Expression: Field '{f.Name}' → {sumExpr}");
+                    
+                    textbox = BuildTextbox($"Txt_Total_{c.Id:N}", sumExpr,
                         bold: true, align: "Right", fontSize: "9pt",
                         format: ResolveFormat(f), topBorderColor: GridLineColor);
                 }
@@ -680,6 +709,9 @@ namespace AutoReportWizard.Services
             {
                 string fieldName = SanitizeIdentifier(f.GetDatasetFieldName());
                 string expr = $"=Fields!{fieldName}.Value";
+                
+                System.Diagnostics.Debug.WriteLine($"Detail Row Expression (Fallback): Field '{f.Name}' → {expr}");
+                
                 return new XElement(Rdl + "TablixCell",
                     new XElement(Rdl + "CellContents",
                         BuildTextbox($"Txt_{fieldName}", expr, bold: false, align: IsRightAligned(f) ? "Right" : "Left",
@@ -707,7 +739,11 @@ namespace AutoReportWizard.Services
                 else if (f.Aggregate != AggregateFunction.None)
                 {
                     string fieldName = SanitizeIdentifier(f.GetDatasetFieldName());
-                    textbox = BuildTextbox($"Txt_Total_{fieldName}", $"=Sum(Fields!{fieldName}.Value)",
+                    string sumExpr = $"=Sum(Fields!{fieldName}.Value)";
+                    
+                    System.Diagnostics.Debug.WriteLine($"Grand Totals Expression (Fallback): Field '{f.Name}' → {sumExpr}");
+                    
+                    textbox = BuildTextbox($"Txt_Total_{fieldName}", sumExpr,
                         bold: true, align: "Right", fontSize: "9pt",
                         format: ResolveFormat(f), topBorderColor: GridLineColor);
                 }

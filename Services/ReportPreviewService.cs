@@ -79,9 +79,58 @@ public static class ReportPreviewService
         if (rdlcStream.CanSeek)
             rdlcStream.Position = 0;
 
+        // ═══════════════════════════════════════════════════════════════════════════
+        // DIAGNOSTIC XML DUMP: Save exact RDLC being fed to the engine
+        // ═══════════════════════════════════════════════════════════════════════════
+        try
+        {
+            string debugRdlcPath = Path.Combine(Path.GetTempPath(), "Debug_AutoReportWizard.rdlc");
+            
+            using (var fileStream = new FileStream(debugRdlcPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+            {
+                rdlcStream.CopyTo(fileStream);
+            }
+            
+            // Rewind stream back to start after diagnostic copy
+            if (rdlcStream.CanSeek)
+                rdlcStream.Position = 0;
+            
+            System.Diagnostics.Debug.WriteLine($"✓ Diagnostic RDLC dumped to: {debugRdlcPath}");
+        }
+        catch (Exception dumpEx)
+        {
+            // Don't fail rendering if diagnostic dump fails
+            System.Diagnostics.Debug.WriteLine($"⚠️  Failed to dump diagnostic RDLC: {dumpEx.Message}");
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        // DATASET NAME VERIFICATION: Ensure binding name matches RDLC definition
+        // ═══════════════════════════════════════════════════════════════════════════
+        const string DATA_SOURCE_NAME = "MainDataSet";
+        
+        // Log dataset binding information for diagnostic purposes
+        System.Diagnostics.Debug.WriteLine("═══ DATASET BINDING DIAGNOSTICS ═══");
+        System.Diagnostics.Debug.WriteLine($"DataSource Name: {DATA_SOURCE_NAME}");
+        System.Diagnostics.Debug.WriteLine($"DataTable Name: {data.TableName}");
+        System.Diagnostics.Debug.WriteLine($"Column Count: {data.Columns.Count}");
+        System.Diagnostics.Debug.WriteLine($"Row Count: {data.Rows.Count}");
+        System.Diagnostics.Debug.WriteLine("Column Names:");
+        
+        foreach (DataColumn col in data.Columns)
+        {
+            System.Diagnostics.Debug.WriteLine($"  • {col.ColumnName} ({col.DataType.Name})");
+        }
+        
         viewer.LocalReport.LoadReportDefinition(rdlcStream);
         viewer.LocalReport.DataSources.Clear();
-        viewer.LocalReport.DataSources.Add(new ReportDataSource("MainDataSet", data));
+        
+        // CRITICAL: The DataSource name "MainDataSet" MUST exactly match the
+        // <DataSet Name="MainDataSet"> generated in RdlcXmlEngine.BuildDataSets().
+        // Any mismatch (even whitespace or case) will cause LocalProcessingException:
+        // "A data source instance has not been supplied for the data source 'MainDataSet'."
+        viewer.LocalReport.DataSources.Add(new ReportDataSource(DATA_SOURCE_NAME, data));
+        
+        System.Diagnostics.Debug.WriteLine($"✓ DataSource '{DATA_SOURCE_NAME}' bound successfully");
 
         if (parameters is not null)
         {
@@ -90,14 +139,20 @@ public static class ReportPreviewService
                 .Select(p => 
                 {
                     string? safeValue = p.Value == " " ? null : (string.IsNullOrWhiteSpace(p.Value) ? null : p.Value.Trim());
+                    System.Diagnostics.Debug.WriteLine($"  Parameter: {p.RdlcParameterName} = {safeValue ?? "(null)"}");
                     return new Microsoft.Reporting.WinForms.ReportParameter(p.RdlcParameterName, safeValue);
                 })
                 .ToArray();
 
             if (reportParams.Length > 0)
+            {
+                System.Diagnostics.Debug.WriteLine($"✓ Setting {reportParams.Length} report parameter(s)");
                 viewer.LocalReport.SetParameters(reportParams);
+            }
         }
 
+        System.Diagnostics.Debug.WriteLine("Triggering RefreshReport()...");
         viewer.RefreshReport();
+        System.Diagnostics.Debug.WriteLine("✓ Report rendered successfully");
     }
 }

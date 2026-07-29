@@ -204,11 +204,80 @@ public partial class ReportDesignerControl : UserControl
 
             // Ensure the host is visible now that content is loaded
             ReportHost.Visibility = Visibility.Visible;
+            
+            // Clear error state on successful render
+            _designerVm.PreviewError = string.Empty;
         }
         catch (Exception ex)
         {
-            // Surface render errors back to the ViewModel so the UI can display them
-            _designerVm.PreviewError = $"Report render failed: {ex.Message}";
+            // ═══════════════════════════════════════════════════════════════════════════
+            // DEEP EXCEPTION UNWRAPPING: SSRS LocalProcessingException Diagnostic Pipeline
+            // ═══════════════════════════════════════════════════════════════════════════
+            // Microsoft.Reporting.WinForms.LocalProcessingException often buries the actual
+            // fault (e.g., "Field 'X' not found", "Expression error", "Dataset missing")
+            // 2-3 levels deep in the InnerException tree. This recursive unwrapper surfaces
+            // every layer to expose the exact root cause.
+            
+            var errorBuilder = new System.Text.StringBuilder();
+            errorBuilder.AppendLine("═══ REPORT RENDER FAILED ═══");
+            errorBuilder.AppendLine();
+            errorBuilder.AppendLine($"Top-Level Exception: {ex.GetType().FullName}");
+            errorBuilder.AppendLine($"Message: {ex.Message}");
+            
+            if (!string.IsNullOrWhiteSpace(ex.StackTrace))
+            {
+                errorBuilder.AppendLine();
+                errorBuilder.AppendLine("Stack Trace:");
+                errorBuilder.AppendLine(ex.StackTrace);
+            }
+            
+            // Recursively unwrap InnerException chain
+            int depth = 1;
+            Exception? innerEx = ex.InnerException;
+            
+            while (innerEx is not null)
+            {
+                errorBuilder.AppendLine();
+                errorBuilder.AppendLine($"─── Inner Exception (Level {depth}) ───");
+                errorBuilder.AppendLine($"Type: {innerEx.GetType().FullName}");
+                errorBuilder.AppendLine($"Message: {innerEx.Message}");
+                
+                // Special handling for LocalProcessingException - this is often where the real error hides
+                if (innerEx.GetType().FullName?.Contains("LocalProcessingException") == true)
+                {
+                    errorBuilder.AppendLine("⚠️  SSRS Local Processing Exception Detected - This likely contains the root cause");
+                }
+                
+                // Include stack trace for LocalProcessingException and exceptions at depth 1-2
+                if (depth <= 2 || innerEx.GetType().FullName?.Contains("LocalProcessingException") == true)
+                {
+                    if (!string.IsNullOrWhiteSpace(innerEx.StackTrace))
+                    {
+                        errorBuilder.AppendLine();
+                        errorBuilder.AppendLine($"Stack Trace (Level {depth}):");
+                        errorBuilder.AppendLine(innerEx.StackTrace);
+                    }
+                }
+                
+                innerEx = innerEx.InnerException;
+                depth++;
+            }
+            
+            errorBuilder.AppendLine();
+            errorBuilder.AppendLine("═══════════════════════════════════════");
+            errorBuilder.AppendLine();
+            errorBuilder.AppendLine("💡 TROUBLESHOOTING HINTS:");
+            errorBuilder.AppendLine("  • Check that DataSet name in RDLC matches 'MainDataSet'");
+            errorBuilder.AppendLine("  • Verify all Fields!X.Value expressions reference actual DataTable columns");
+            errorBuilder.AppendLine("  • Ensure Parameters!X.Value expressions match defined ReportParameters");
+            errorBuilder.AppendLine("  • Review debug RDLC XML file in temp directory (see log above)");
+            errorBuilder.AppendLine("  • Confirm column names from SP don't contain special characters that break binding");
+            
+            // Surface the complete diagnostic information to the ViewModel
+            _designerVm.PreviewError = errorBuilder.ToString();
+            
+            // Also append to the generation log for persistence
+            _designerVm.AppendLog("❌ RENDER FAILURE - See Preview tab for detailed diagnostic information");
         }
     }
 
